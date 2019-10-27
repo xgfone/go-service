@@ -1,0 +1,327 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"sort"
+	"sync"
+	"time"
+)
+
+var errInit = errors.New("init")
+
+// Predefine some errors.
+var (
+	ErrNoAvailableEndpoint = errors.New("no available endpoints")
+)
+
+type endpoints []Endpoint
+
+func (es endpoints) Len() int      { return len(es) }
+func (es endpoints) Swap(i, j int) { es[i], es[j] = es[j], es[i] }
+func (es endpoints) Less(i, j int) bool {
+	if es[i] == nil {
+		return false
+	} else if es[j] == nil {
+		return true
+	}
+	return es[i].String() < es[j].String()
+}
+
+// LoadBalancer implements the LoadBalance function.
+//
+// A LoadBalancer instance is a group of endpoints that can handle the same
+// request, which will forward the request to any endpoint to handle.
+type LoadBalancer struct {
+	lock sync.RWMutex
+
+	session      SessionManager
+	selector     Selector
+	endpoints    []Endpoint
+	failHandler  FailHandler
+	failInterval time.Duration
+}
+
+// NewLoadBalancer returns a new LoadBalancer.
+func NewLoadBalancer() *LoadBalancer {
+	return &LoadBalancer{
+		session:      NewMemorySessionManager(),
+		selector:     RoundRobinSelector(),
+		endpoints:    make([]Endpoint, 0, 64),
+		failHandler:  FailFast(),
+		failInterval: time.Millisecond * 100,
+	}
+}
+
+// Len returns the number of the endpoints.
+func (lb *LoadBalancer) Len() int {
+	lb.lock.RLock()
+	_len := len(lb.endpoints)
+	lb.lock.RUnlock()
+	return _len
+}
+
+// Endpoints returns all the endpoints.
+func (lb *LoadBalancer) Endpoints() []Endpoint {
+	lb.lock.RLock()
+	endpoints := make([]Endpoint, len(lb.endpoints))
+	copy(endpoints, lb.endpoints)
+	lb.lock.RUnlock()
+	return endpoints
+}
+
+// AddEndpoint is equal to lb.AddEndpoints(endpoint).
+func (lb *LoadBalancer) AddEndpoint(endpoint Endpoint) {
+	lb.AddEndpoints(endpoint)
+}
+
+// AddEndpoints adds the new endpoints.
+func (lb *LoadBalancer) AddEndpoints(endpoint ...Endpoint) {
+	var isSort bool
+	eps := endpoint
+
+	lb.lock.Lock()
+
+LOOP:
+	for _, ep1 := range eps {
+		addr := ep1.String()
+		for i, ep2 := range lb.endpoints {
+			if ep2.String() == addr {
+				lb.endpoints[i] = ep1
+				continue LOOP
+			}
+		}
+		isSort = true
+		lb.endpoints = append(lb.endpoints, ep1)
+	}
+
+	if isSort {
+		sort.Sort(endpoints(lb.endpoints))
+	}
+
+	lb.lock.Unlock()
+}
+
+// DelEndpoint is equal to lb.DelEndpoints(endpoint).
+func (lb *LoadBalancer) DelEndpoint(endpoint Endpoint) {
+	lb.DelEndpoints(endpoint)
+}
+
+// DelEndpoints deletes some endpoints.
+func (lb *LoadBalancer) DelEndpoints(endpoint ...Endpoint) {
+	var num int
+	lb.lock.Lock()
+	for _, ep := range endpoint {
+		if lb.delEndpointByString(ep.String()) {
+			num++
+		}
+	}
+	lb.updateEndpoints(num)
+	lb.lock.Unlock()
+}
+
+// DelEndpointByString is equal to lb.DelEndpointsByString(endpoint).
+func (lb *LoadBalancer) DelEndpointByString(endpoint string) {
+	lb.DelEndpointsByString(endpoint)
+}
+
+// DelEndpointsByString deletes some endpoints by the endpoint addresses.
+func (lb *LoadBalancer) DelEndpointsByString(endpoints ...string) {
+	var num int
+	lb.lock.Lock()
+	for _, endpoint := range endpoints {
+		if lb.delEndpointByString(endpoint) {
+			num++
+		}
+	}
+	lb.updateEndpoints(num)
+	lb.lock.Unlock()
+}
+
+func (lb *LoadBalancer) updateEndpoints(num int) {
+	if num > 0 {
+		sort.Sort(endpoints(lb.endpoints))
+		lb.endpoints = lb.endpoints[:len(lb.endpoints)-num]
+
+		// We will recycle the overmuch unused memory.
+		if _len := len(lb.endpoints); cap(lb.endpoints)-_len > 256 {
+			endpoints := make([]Endpoint, _len, _len+8)
+			copy(endpoints, lb.endpoints)
+			lb.endpoints = endpoints
+		}
+	}
+}
+
+func (lb *LoadBalancer) delEndpointByString(endpoint string) bool {
+	for i, ep := range lb.endpoints {
+		if ep.String() == endpoint {
+			lb.endpoints[i] = nil
+			return true
+		}
+	}
+	return false
+}
+
+// SetSessionManager resets the session manager to sm.
+//
+// If sm is nil, it will disable the session manager.
+func (lb *LoadBalancer) SetSessionManager(sm SessionManager) *LoadBalancer {
+	lb.lock.Lock()
+	lb.session = sm
+	lb.lock.Unlock()
+	return lb
+}
+
+// SetSelector resets the selector to s.
+func (lb *LoadBalancer) SetSelector(s Selector) *LoadBalancer {
+	if s == nil {
+		panic("LoadBalancer: the selector must not be nil")
+	}
+
+	lb.lock.Lock()
+	lb.selector = s
+	lb.lock.Unlock()
+	return lb
+}
+
+// SetFailHandler resets the fail handler to h.
+func (lb *LoadBalancer) SetFailHandler(h FailHandler) *LoadBalancer {
+	if h == nil {
+		panic("LoadBalancer: the FailHandler must not be nil")
+	}
+
+	lb.lock.Lock()
+	lb.failHandler = h
+	lb.lock.Unlock()
+	return lb
+}
+
+// SetFailInterval resets the interval time to retry to forward the request.
+func (lb *LoadBalancer) SetFailInterval(interval time.Duration) *LoadBalancer {
+	lb.lock.Lock()
+	lb.failInterval = interval
+	lb.lock.Unlock()
+	return lb
+}
+
+// DeleteSession deletes the session cache.
+func (lb *LoadBalancer) DeleteSession(raddr string) {
+	lb.deleteEndpoint(raddr)
+}
+
+func (lb *LoadBalancer) getEndpoint(raddr string, index int) Endpoint {
+	var endpoint Endpoint
+	lb.lock.RLock()
+	if _len := len(lb.endpoints); _len > 0 {
+		if index == _len {
+			index = 0
+		} else if index > _len {
+			index %= _len
+		}
+		endpoint = lb.endpoints[index]
+		lb.setEndpointToSession(raddr, endpoint)
+	}
+	lb.lock.RUnlock()
+	return endpoint
+}
+
+func (lb *LoadBalancer) getEndpointFromSession(addr string) (Endpoint, int) {
+	if addr != "" && lb.session != nil {
+		endpoint := lb.session.GetEndpoint(addr)
+		if endpoint != nil {
+			eaddr := endpoint.String()
+			for i, ep := range lb.endpoints {
+				if ep.String() == eaddr {
+					return endpoint, i
+				}
+			}
+			lb.session.DelEndpoint(addr)
+		}
+	}
+	return nil, 0
+}
+
+func (lb *LoadBalancer) setEndpointToSession(addr string, endpoint Endpoint) {
+	if addr != "" && lb.session != nil {
+		lb.session.SetEndpoint(addr, endpoint)
+	}
+}
+
+func (lb *LoadBalancer) deleteEndpoint(addr string) {
+	if addr == "" {
+		return
+	}
+
+	lb.lock.RLock()
+	session := lb.session
+	lb.lock.RUnlock()
+	if session != nil {
+		session.DelEndpoint(addr)
+	}
+}
+
+// RoundTrip selects an endpoint, then call it. If failed, it will retry it
+// by the fail handler.
+//
+// Notice: the retry number won't exceeds the number of the endpoints.
+func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Response, err error) {
+	raddr := req.Session()
+	if raddr == "" {
+		if addr := req.RemoteAddr(); addr != nil {
+			raddr = addr.String()
+		}
+	}
+
+	lb.lock.RLock()
+	_len := len(lb.endpoints)
+	if _len == 0 {
+		lb.lock.Unlock()
+		return nil, ErrNoAvailableEndpoint
+	}
+
+	endpoint, index := lb.getEndpointFromSession(raddr)
+	if endpoint == nil {
+		index = lb.selector(req, lb.endpoints)
+		endpoint = lb.endpoints[index]
+		lb.setEndpointToSession(raddr, endpoint)
+	}
+
+	interval := lb.failInterval
+	failHandler := lb.failHandler
+	lb.lock.RUnlock()
+
+	var retry int
+	err = errInit
+	for retry <= _len && err != nil && endpoint != nil {
+		if resp, err = endpoint.RoundTrip(ctx, req); err != nil {
+			if index = failHandler(index, retry); index < 0 {
+				break
+			}
+
+			select {
+			case <-ctx.Done():
+				break
+			default:
+			}
+
+			if interval > 0 {
+				time.Sleep(interval)
+			}
+
+			select {
+			case <-ctx.Done():
+				break
+			default:
+			}
+
+			endpoint = lb.getEndpoint(raddr, index)
+			retry++
+		}
+	}
+
+	if err != nil {
+		lb.deleteEndpoint(raddr)
+	}
+
+	return
+}
