@@ -108,10 +108,6 @@ func (h httpEndpoint) RoundTrip(ctx context.Context, req Request) (resp Response
 		return nil, err
 	}
 
-	if ctx != context.TODO() && ctx != context.Background() {
-		hreq = hreq.WithContext(ctx)
-	}
-
 	client := h.client
 	if client == nil {
 		client = http.DefaultClient
@@ -125,6 +121,8 @@ func (h httpEndpoint) RoundTrip(ctx context.Context, req Request) (resp Response
 			if resp, err = toResp.FromHTTPResponse(hresp); err != nil {
 				hresp.Body.Close()
 			}
+		} else {
+			resp = hresp
 		}
 	}
 
