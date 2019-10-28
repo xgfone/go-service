@@ -36,10 +36,11 @@ func CheckHTTPEndpointHealth(ctx context.Context, endpoint Endpoint) bool {
 
 	client := GetHTTPClientFromContext(ctx)
 	if strings.HasPrefix(addr, "http") {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, addr, nil)
+		req, err := http.NewRequest(http.MethodGet, addr, nil)
 		if err != nil {
 			return false
 		}
+		req = req.WithContext(ctx)
 
 		resp, err := client.Do(req)
 		if err != nil {

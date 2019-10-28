@@ -39,6 +39,7 @@ func TestHealthChecker(t *testing.T) {
 
 	time.Sleep(time.Second)
 	hc.Stop()
+	time.Sleep(time.Millisecond)
 
 	var isDelete bool
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
