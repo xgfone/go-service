@@ -7,12 +7,12 @@ import (
 
 // Request represents a request.
 type Request interface {
-	// Session returns the context session of the request,
+	// SessionID returns the session id of the request context,
 	// which may be the remote address.
 	//
 	// Notice: It maybe return the empty string, and the remote address will
 	// be used at the moment.
-	Session() string
+	SessionID() string
 
 	// RemoteAddr returns the address of the remote peer, that's, the sender
 	// of the current request.

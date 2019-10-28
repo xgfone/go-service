@@ -43,7 +43,7 @@ func newRequest(method, urlTmp string, body io.Reader) request {
 	return request{method: method, urlTmp: urlTmp, body: body}
 }
 
-func (r request) Session() string      { return "" }
+func (r request) SessionID() string      { return "" }
 func (r request) RemoteAddr() net.Addr { return nil }
 func (r request) ToHTTPRequest(ctx context.Context, ep service.Endpoint) (*http.Request, error) {
 	url := fmt.Sprintf(r.urlTmp, ep.String())
@@ -123,7 +123,7 @@ type request struct {
 	*http.Request
 }
 
-func (r request) Session() string { return "" }
+func (r request) SessionID() string { return "" }
 func (r request) RemoteAddr() net.Addr {
 	addr, _ := net.ResolveTCPAddr("tcp", r.Request.RemoteAddr)
 	return addr
