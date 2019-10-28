@@ -42,7 +42,7 @@ func TestHealthChecker(t *testing.T) {
 
 	var isDelete bool
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
-	for i := 0; i < len(lines); i += 2 {
+	for i := 0; i+1 < len(lines); i += 2 {
 		line1 := strings.TrimSpace(lines[i])
 		line2 := strings.TrimSpace(lines[i+1])
 
