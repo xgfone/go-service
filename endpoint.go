@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"net"
 )
 
 // Request represents a request.
@@ -14,12 +13,12 @@ type Request interface {
 	// be used at the moment.
 	SessionID() string
 
-	// RemoteAddr returns the address of the remote peer, that's, the sender
-	// of the current request.
+	// RemoteAddrString returns the address string of the remote peer,
+	// that's, the sender of the current request.
 	//
-	// Notice: it maybe return nil to represent that it is the originator and
-	// not to forward the request.
-	RemoteAddr() net.Addr
+	// Notice: it maybe return "" to represent that it is the originator
+	// and not to forward the request.
+	RemoteAddrString() string
 }
 
 // Response represents a response.

@@ -54,18 +54,26 @@ func RoundRobinSelector() Selector {
 }
 
 // SourceIPSelector returns an endpoint selector based on the source ip.
+//
+// Notice: If failing to parse the remote address, it will degenerate to
+// the RoundRobin selector.
 func SourceIPSelector() Selector {
+	rr := RoundRobinSelector()
 	return func(req Request, endpoints []Endpoint) int {
 		var ip net.IP
-		switch addr := req.RemoteAddr().(type) {
-		case *net.IPAddr:
-			ip = addr.IP
-		case *net.TCPAddr:
-			ip = addr.IP
-		case *net.UDPAddr:
-			ip = addr.IP
-		default:
-			ip = net.ParseIP(req.RemoteAddr().String())
+		if raddr, ok := req.(interface{ RemoteAddr() net.Addr }); ok {
+			switch addr := raddr.RemoteAddr().(type) {
+			case *net.IPAddr:
+				ip = addr.IP
+			case *net.TCPAddr:
+				ip = addr.IP
+			case *net.UDPAddr:
+				ip = addr.IP
+			default:
+				ip = net.ParseIP(raddr.RemoteAddr().String())
+			}
+		} else if host, _, err := net.SplitHostPort(req.RemoteAddrString()); err == nil {
+			ip = net.ParseIP(host)
 		}
 
 		var value uint64
@@ -75,7 +83,7 @@ func SourceIPSelector() Selector {
 		case net.IPv6len:
 			value = binary.BigEndian.Uint64(ip[8:16])
 		default:
-			return 0
+			return rr(req, endpoints)
 		}
 
 		return int(value % uint64(len(endpoints)))

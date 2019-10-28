@@ -267,8 +267,8 @@ func (lb *LoadBalancer) deleteEndpoint(addr string) {
 func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Response, err error) {
 	raddr := req.SessionID()
 	if raddr == "" {
-		if addr := req.RemoteAddr(); addr != nil {
-			raddr = addr.String()
+		if addr := req.RemoteAddrString(); addr != "" {
+			raddr = addr
 		}
 	}
 

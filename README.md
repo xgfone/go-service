@@ -43,8 +43,8 @@ func newRequest(method, urlTmp string, body io.Reader) request {
 	return request{method: method, urlTmp: urlTmp, body: body}
 }
 
-func (r request) SessionID() string      { return "" }
-func (r request) RemoteAddr() net.Addr { return nil }
+func (r request) SessionID() string        { return "" }
+func (r request) RemoteAddrString() string { return "" }
 func (r request) ToHTTPRequest(ctx context.Context, ep service.Endpoint) (*http.Request, error) {
 	url := fmt.Sprintf(r.urlTmp, ep.String())
 	return http.NewRequestWithContext(ctx, r.method, url, r.body)
@@ -108,7 +108,6 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
-	"net"
 	"net/http"
 	"time"
 
@@ -119,19 +118,14 @@ func init() {
 	rand.Seed(time.Now().UnixNano())
 }
 
-type request struct {
-	*http.Request
-}
+type request http.Request
 
-func (r request) SessionID() string { return "" }
-func (r request) RemoteAddr() net.Addr {
-	addr, _ := net.ResolveTCPAddr("tcp", r.Request.RemoteAddr)
-	return addr
-}
-func (r request) ToHTTPRequest(ctx context.Context, ep service.Endpoint) (*http.Request, error) {
-	url := fmt.Sprintf("http://%s%s", ep.String(), r.Request.RequestURI)
-	req, _ := http.NewRequestWithContext(ctx, r.Request.Method, url, r.Request.Body)
-	req.Header.Set("HeaderXForwardedFor", r.Request.RemoteAddr)
+func (r *request) SessionID() string        { return "" }
+func (r *request) RemoteAddrString() string { return r.RemoteAddr }
+func (r *request) ToHTTPRequest(ctx context.Context, ep service.Endpoint) (*http.Request, error) {
+	url := fmt.Sprintf("http://%s%s", ep.String(), r.RequestURI)
+	req, _ := http.NewRequestWithContext(ctx, r.Method, url, r.Body)
+	req.Header.Set("HeaderXForwardedFor", r.RemoteAddr)
 	req.Header.Set("Origin", url)
 	// TODO: Add other headers
 	return req, nil
@@ -139,7 +133,7 @@ func (r request) ToHTTPRequest(ctx context.Context, ep service.Endpoint) (*http.
 
 func proxyHandler(lb *service.LoadBalancer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp, err := lb.RoundTrip(context.Background(), request{r})
+		resp, err := lb.RoundTrip(context.Background(), (*request)(r))
 		if err != nil {
 			w.WriteHeader(500)
 			w.Write([]byte(err.Error()))
