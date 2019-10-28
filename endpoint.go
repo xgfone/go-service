@@ -38,6 +38,9 @@ type Endpoint interface {
 	RoundTrip(context.Context, Request) (Response, error)
 }
 
+// HealthChecker is used to check the health status of an endpoint.
+type HealthChecker func(context.Context, Endpoint) bool
+
 // Middleware is a chainable behavior modifier for endpoints.
 type Middleware func(next Endpoint) Endpoint
 
