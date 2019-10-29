@@ -4,15 +4,22 @@ import (
 	"context"
 )
 
+// RequestSession represents a request session of the business logic.
+type RequestSession interface {
+	// SessionID returns the session id of the request context, which is used,
+	// when enabling the session stick, to bind the requests with the same
+	// session id but without the same connection to a backend endpoint
+	// to be handled.
+	//
+	// It maybe return the remote address as the session id. In this case,
+	// you does not need to implement it, it will RemoteAddrString() instead.
+	//
+	// Notice: it should not return an empty string.
+	SessionID() string
+}
+
 // Request represents a request.
 type Request interface {
-	// SessionID returns the session id of the request context,
-	// which may be the remote address.
-	//
-	// Notice: It maybe return the empty string, and the remote address will
-	// be used at the moment.
-	SessionID() string
-
 	// RemoteAddrString returns the address string of the remote peer,
 	// that's, the sender of the current request.
 	//

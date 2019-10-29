@@ -265,11 +265,9 @@ func (lb *LoadBalancer) deleteEndpoint(addr string) {
 //
 // Notice: the retry number won't exceeds the number of the endpoints.
 func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Response, err error) {
-	raddr := req.SessionID()
-	if raddr == "" {
-		if addr := req.RemoteAddrString(); addr != "" {
-			raddr = addr
-		}
+	raddr := req.RemoteAddrString()
+	if sreq, ok := req.(RequestSession); ok {
+		raddr = sreq.SessionID()
 	}
 
 	lb.lock.RLock()

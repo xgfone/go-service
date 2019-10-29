@@ -43,7 +43,6 @@ func newRequest(method, urlTmp string, body io.Reader) request {
 	return request{method: method, urlTmp: urlTmp, body: body}
 }
 
-func (r request) SessionID() string        { return "" }
 func (r request) RemoteAddrString() string { return "" }
 func (r request) ToHTTPRequest(ctx context.Context, ep service.Endpoint) (*http.Request, error) {
 	url := fmt.Sprintf(r.urlTmp, ep.String())
@@ -120,12 +119,11 @@ func init() {
 
 type request http.Request
 
-func (r *request) SessionID() string        { return "" }
 func (r *request) RemoteAddrString() string { return r.RemoteAddr }
 func (r *request) ToHTTPRequest(ctx context.Context, ep service.Endpoint) (*http.Request, error) {
 	url := fmt.Sprintf("http://%s%s", ep.String(), r.RequestURI)
 	req, _ := http.NewRequestWithContext(ctx, r.Method, url, r.Body)
-	req.Header.Set("HeaderXForwardedFor", r.RemoteAddr)
+	req.Header.Set("X-Forwarded-For", r.RemoteAddr)
 	req.Header.Set("Origin", url)
 	// TODO: Add other headers
 	return req, nil
@@ -167,3 +165,5 @@ func main() {
 ```
 
 Then you can access `http://127.0.0.1:8000` to forward the request to any of `http://192.168.1.1:80`, `http://192.168.1.2:80`, `http://192.168.1.3:80`.
+
+You also implement yourself `Request` and `Endpoint` to customize the business logic. For `TCP`, you should implement `Endpoint` by yourself according to the customized protocol format.
