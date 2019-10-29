@@ -63,7 +63,7 @@ func NewHealthCheck() *HealthCheck {
 // AddUpdater adds a updater to monitor the change of the health status
 // of the endpoint.
 //
-// It should be called after any endpoint is added.
+// It should be called before any endpoint is added.
 func (hc *HealthCheck) AddUpdater(updater Updater) {
 	hc.updaters = append(hc.updaters, updater)
 }
