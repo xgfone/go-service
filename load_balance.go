@@ -206,7 +206,7 @@ func (lb *LoadBalancer) SetFailInterval(interval time.Duration) *LoadBalancer {
 
 // DeleteSession deletes the session cache.
 func (lb *LoadBalancer) DeleteSession(raddr string) {
-	lb.deleteEndpoint(raddr)
+	lb.deleteEndpointFromSession(raddr)
 }
 
 func (lb *LoadBalancer) getEndpoint(raddr string, index int) Endpoint {
@@ -247,7 +247,7 @@ func (lb *LoadBalancer) setEndpointToSession(addr string, endpoint Endpoint) {
 	}
 }
 
-func (lb *LoadBalancer) deleteEndpoint(addr string) {
+func (lb *LoadBalancer) deleteEndpointFromSession(addr string) {
 	if addr == "" {
 		return
 	}
@@ -258,6 +258,24 @@ func (lb *LoadBalancer) deleteEndpoint(addr string) {
 	if session != nil {
 		session.DelEndpoint(addr)
 	}
+}
+
+func (lb *LoadBalancer) endpointIsAlive(endpoint Endpoint, key string) Endpoint {
+	if endpoint != nil {
+		addr := endpoint.String()
+		for _, ep := range lb.endpoints {
+			if ep.String() == addr {
+				return endpoint
+			}
+		}
+
+		// Remove the dead endpoint from the session cache.
+		if lb.session != nil {
+			lb.session.DelEndpoint(key)
+		}
+	}
+
+	return nil
 }
 
 // RoundTrip selects an endpoint, then call it. If failed, it will retry it
@@ -278,7 +296,7 @@ func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Respon
 	}
 
 	endpoint, index := lb.getEndpointFromSession(raddr)
-	if endpoint == nil {
+	if endpoint = lb.endpointIsAlive(endpoint, raddr); endpoint == nil {
 		index = lb.selector(req, lb.endpoints)
 		endpoint = lb.endpoints[index]
 		lb.setEndpointToSession(raddr, endpoint)
@@ -318,7 +336,7 @@ func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Respon
 	}
 
 	if err != nil {
-		lb.deleteEndpoint(raddr)
+		lb.deleteEndpointFromSession(raddr)
 	}
 
 	return
