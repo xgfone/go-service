@@ -47,8 +47,8 @@ type Response interface{}
 
 // Endpoint represents a service endpoint.
 type Endpoint interface {
-	// String returns the description of the endpoint, which maybe the address
-	// for TCP or URL for HTTP.
+	// String returns the description of the endpoint, which is the unique
+	// identity and may be the address or the url.
 	String() string
 
 	// IsHealthy reports whether the current endpoint is healthy.
@@ -56,6 +56,17 @@ type Endpoint interface {
 
 	// RoundTrip sends the request to the current endpoint.
 	RoundTrip(context.Context, Request) (Response, error)
+}
+
+// EndpointStatus is used to manage the status of the endpoint.
+type EndpointStatus interface {
+	// Activate is called when the endpoint is added into the loadbalancer,
+	// if the endpoint has implemented the interface.
+	Activate(context.Context)
+
+	// Deactivate is called when the endpoint is removed from the loadbalancer,
+	// if the endpoint has implemented the interface.
+	Deactivate(context.Context)
 }
 
 // HealthChecker is used to check the health status of an endpoint.

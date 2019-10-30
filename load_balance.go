@@ -93,6 +93,7 @@ func (lb *LoadBalancer) AddEndpoint(endpoint Endpoint) {
 func (lb *LoadBalancer) AddEndpoints(endpoint ...Endpoint) {
 	var isSort bool
 	eps := endpoint
+	deps := []Endpoint{}
 
 	lb.lock.Lock()
 
@@ -102,6 +103,7 @@ LOOP:
 		for i, ep2 := range lb.endpoints {
 			if ep2.String() == addr {
 				lb.endpoints[i] = ep1
+				deps = append(deps, ep2)
 				continue LOOP
 			}
 		}
@@ -114,6 +116,17 @@ LOOP:
 	}
 
 	lb.lock.Unlock()
+
+	for _, ep := range endpoint {
+		if eps, ok := ep.(EndpointStatus); ok {
+			eps.Activate(context.Background())
+		}
+	}
+	for _, ep := range deps {
+		if eps, ok := ep.(EndpointStatus); ok {
+			eps.Deactivate(context.Background())
+		}
+	}
 }
 
 // DelEndpoint is equal to lb.DelEndpoints(endpoint).
@@ -122,16 +135,26 @@ func (lb *LoadBalancer) DelEndpoint(endpoint Endpoint) {
 }
 
 // DelEndpoints deletes some endpoints.
-func (lb *LoadBalancer) DelEndpoints(endpoint ...Endpoint) {
+func (lb *LoadBalancer) DelEndpoints(endpoints ...Endpoint) {
+	eps := make([]Endpoint, 0, len(endpoints))
+
 	var num int
 	lb.lock.Lock()
-	for _, ep := range endpoint {
-		if lb.delEndpointByString(ep.String()) {
+	for _, endpoint := range endpoints {
+		ep, ok := lb.delEndpointByString(endpoint.String())
+		if ok {
 			num++
+			eps = append(eps, ep)
 		}
 	}
 	lb.updateEndpoints(num)
 	lb.lock.Unlock()
+
+	for _, ep := range eps {
+		if eps, ok := ep.(EndpointStatus); ok {
+			eps.Deactivate(context.Background())
+		}
+	}
 }
 
 // DelEndpointByString is equal to lb.DelEndpointsByString(endpoint).
@@ -141,15 +164,25 @@ func (lb *LoadBalancer) DelEndpointByString(endpoint string) {
 
 // DelEndpointsByString deletes some endpoints by the endpoint addresses.
 func (lb *LoadBalancer) DelEndpointsByString(endpoints ...string) {
+	eps := make([]Endpoint, 0, len(endpoints))
+
 	var num int
 	lb.lock.Lock()
 	for _, endpoint := range endpoints {
-		if lb.delEndpointByString(endpoint) {
+		ep, ok := lb.delEndpointByString(endpoint)
+		if ok {
 			num++
+			eps = append(eps, ep)
 		}
 	}
 	lb.updateEndpoints(num)
 	lb.lock.Unlock()
+
+	for _, ep := range eps {
+		if eps, ok := ep.(EndpointStatus); ok {
+			eps.Deactivate(context.Background())
+		}
+	}
 }
 
 func (lb *LoadBalancer) updateEndpoints(num int) {
@@ -166,14 +199,14 @@ func (lb *LoadBalancer) updateEndpoints(num int) {
 	}
 }
 
-func (lb *LoadBalancer) delEndpointByString(endpoint string) bool {
+func (lb *LoadBalancer) delEndpointByString(endpoint string) (Endpoint, bool) {
 	for i, ep := range lb.endpoints {
 		if ep.String() == endpoint {
 			lb.endpoints[i] = nil
-			return true
+			return ep, true
 		}
 	}
-	return false
+	return nil, false
 }
 
 // SetSessionManager resets the session manager to sm.
