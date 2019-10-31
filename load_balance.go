@@ -407,7 +407,7 @@ func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Respon
 // SelectEndpoint selects an active endpoint.
 //
 // Return nil if no any active endpoint.
-func (lb *LoadBalancer) SelectEndpoint() Endpoint {
-	_, _, endpoint, _, _ := lb.selectEndpoint(NewNoopRequest(), "", false)
+func (lb *LoadBalancer) SelectEndpoint(req Request) Endpoint {
+	_, _, endpoint, _, _ := lb.selectEndpoint(req, "", false)
 	return endpoint
 }
