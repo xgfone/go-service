@@ -2,15 +2,16 @@
 
 A service library, such as LoadBalancer.
 
-## Installation
+## 1. Installation
 ```shell
 $ go get -u github.com/xgfone/go-service
 ```
 
-## Example
+## 2. Example
 
-### `Client` Mode
+### 2.1 `Client` Mode
 
+#### 2.1.1 For HTTP Client
 ```go
 package main
 
@@ -97,8 +98,83 @@ func main() {
 }
 ```
 
-### `Proxy` Mode
+#### 2.1.2 For TCP Client
+```go
+package main
 
+import (
+	"bytes"
+	"context"
+	"encoding/binary"
+	"fmt"
+	"io"
+	"math/rand"
+	"net"
+	"time"
+
+	"github.com/xgfone/go-service"
+)
+
+func init() { rand.Seed(time.Now().UnixNano()) }
+
+func dial(ctx context.Context, address string) (net.Conn, error) { return net.Dial("tcp", address) }
+
+type request struct{ Data string }
+
+func (r request) SendRequest(conn *net.TCPConn) (err error) {
+	buf := bytes.NewBuffer(nil)
+	buf.Grow(len(r.Data) + 4)
+	binary.Write(buf, binary.BigEndian, int32(len(r.Data)))
+	buf.WriteString(r.Data)
+	_, err = io.Copy(conn, buf)
+	return
+}
+
+func (r request) ReadResponse(conn *net.TCPConn) (resp service.Response, err error) {
+	var length uint32
+	if err = binary.Read(conn, binary.BigEndian, &length); err != nil {
+		return
+	}
+
+	buf := bytes.NewBuffer(nil)
+	buf.Grow(int(length))
+	if _, err = io.CopyN(buf, conn, int64(length)); err != nil {
+		return
+	}
+
+	return buf.String(), nil
+}
+
+func main() {
+	timeout := time.Second
+	interval := time.Second * 5
+	lb := service.NewStatusLoadBalancer()
+	lb.SetSelector(service.RandomSelector()).SetFailHandler(service.FailTry(0))
+	lb.AddEndpoint(service.NewTCPEndpoint("192.168.1.1:80", dial, 10, time.Second), interval, timeout)
+	lb.AddEndpoint(service.NewTCPEndpoint("192.168.1.2:80", dial, 10, time.Second), interval, timeout)
+	lb.AddEndpoint(service.NewTCPEndpoint("192.168.1.3:80", dial, 10, time.Second), interval, timeout)
+
+	// Wait to check the health status of all end endpoints.
+	time.Sleep(time.Second)
+
+	fmt.Println(lb.Endpoints())
+	// Output:
+	// [192.168.1.1:80 192.168.1.2:80 192.168.1.3:80]
+
+	// Send the request and get the response.
+	req := request{Data: "THE SENT DATA"}
+	res, err := lb.RoundTrip(context.Background(), service.NewTCPRequest("", req.SendRequest, req.ReadResponse))
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Println(res)
+	}
+}
+```
+
+### 2.2 `Proxy` Mode
+
+#### 2.2.1 For HTTP Proxy
 ```go
 package main
 
@@ -167,3 +243,111 @@ func main() {
 Then you can access `http://127.0.0.1:8000` to forward the request to any of `http://192.168.1.1:80`, `http://192.168.1.2:80`, `http://192.168.1.3:80`.
 
 You also implement yourself `Request` and `Endpoint` to customize the business logic. For `TCP`, you should implement `Endpoint` by yourself according to the customized protocol format.
+
+#### 2.2.2 For TCP Proxy
+```go
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/binary"
+	"fmt"
+	"io"
+	"math/rand"
+	"net"
+	"time"
+
+	"github.com/xgfone/go-service"
+)
+
+func init() { rand.Seed(time.Now().UnixNano()) }
+
+func dial(ctx context.Context, address string) (net.Conn, error) { return net.Dial("tcp", address) }
+
+type request struct{ Data []byte }
+
+func (r request) Send(conn *net.TCPConn) (err error) {
+	buf := bytes.NewBuffer(nil)
+	buf.Grow(len(r.Data) + 4)
+	binary.Write(buf, binary.BigEndian, int32(len(r.Data)))
+	buf.Write(r.Data)
+	_, err = io.Copy(conn, buf)
+	return
+}
+
+func (r request) Read(conn *net.TCPConn) (resp service.Response, err error) {
+	var length uint32
+	if err = binary.Read(conn, binary.BigEndian, &length); err != nil {
+		return
+	}
+
+	buf := bytes.NewBuffer(nil)
+	buf.Grow(int(length))
+	if _, err = io.CopyN(buf, conn, int64(length)); err != nil {
+		return
+	}
+
+	return buf.Bytes(), nil
+}
+
+func proxy(lb *service.StatusLoadBalancer, conn *net.TCPConn) {
+	defer conn.Close()
+
+	raddr := conn.RemoteAddr().String()
+	for {
+		r := request{}
+
+		// Read the data from the source
+		resp, err := r.Read(conn)
+		if err != nil {
+			if err != io.EOF {
+				fmt.Printf("fail to read from the source '%s': %v\n", raddr, err)
+			}
+			return
+		}
+		r.Data = resp.([]byte)
+
+		// Write the data to the destination and get the response.
+		req := service.NewTCPRequest(raddr, r.Send, r.Read)
+		resp, err = lb.RoundTrip(context.Background(), req)
+		if err != nil {
+			fmt.Printf("fail to send the data to the destination: %v\n", err)
+			return
+		}
+
+		// Write the response to the source
+		r.Data = resp.([]byte)
+		if err = r.Send(conn); err != nil {
+			fmt.Printf("fail to send the response to the source '%s': %v\n", raddr, err)
+			return
+		}
+	}
+}
+
+func main() {
+	timeout := time.Second
+	interval := time.Second * 5
+	lb := service.NewStatusLoadBalancer()
+	lb.SetSelector(service.RandomSelector()).SetFailHandler(service.FailTry(0))
+	lb.AddEndpoint(service.NewTCPEndpoint("192.168.1.1:80", dial, 10, time.Second), interval, timeout)
+	lb.AddEndpoint(service.NewTCPEndpoint("192.168.1.2:80", dial, 10, time.Second), interval, timeout)
+	lb.AddEndpoint(service.NewTCPEndpoint("192.168.1.3:80", dial, 10, time.Second), interval, timeout)
+
+	addr, _ := net.ResolveTCPAddr("tcp", ":8000")
+	ln, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	for {
+		conn, err := ln.AcceptTCP()
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		go proxy(lb, conn)
+	}
+}
+```
