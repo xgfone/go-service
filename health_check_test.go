@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -36,16 +37,32 @@ func (e *hcEndpoint) IsHealthy(context.Context) bool {
 }
 func (e *hcEndpoint) RoundTrip(context.Context, Request) (Response, error) { return nil, nil }
 
-type hcUpdater struct{ buf *bytes.Buffer }
+type hcUpdater struct {
+	sync.RWMutex
+	buf *bytes.Buffer
+}
 
-func (u hcUpdater) AddEndpoint(e Endpoint) { fmt.Fprintf(u.buf, "add endpoint '%s'\n", e.String()) }
-func (u hcUpdater) DelEndpoint(e Endpoint) { fmt.Fprintf(u.buf, "delete endpoint '%s'\n", e.String()) }
+func (u *hcUpdater) String() string {
+	u.Lock()
+	defer u.Unlock()
+	return u.buf.String()
+}
+func (u *hcUpdater) AddEndpoint(e Endpoint) {
+	u.Lock()
+	defer u.Unlock()
+	fmt.Fprintf(u.buf, "add endpoint '%s'\n", e.String())
+}
+func (u *hcUpdater) DelEndpoint(e Endpoint) {
+	u.Lock()
+	defer u.Unlock()
+	fmt.Fprintf(u.buf, "delete endpoint '%s'\n", e.String())
+}
 
 func TestHealthChecker(t *testing.T) {
 	hc := NewHealthCheck()
 
-	buf := bytes.NewBufferString("\n")
-	hc.AddUpdater(hcUpdater{buf: buf})
+	updater := &hcUpdater{buf: bytes.NewBufferString("\n")}
+	hc.AddUpdater(updater)
 
 	interval := time.Millisecond * 50
 	hc.AddEndpoint(newHCEndpoint("1.1.1.1:80"), interval, 0)
@@ -56,7 +73,7 @@ func TestHealthChecker(t *testing.T) {
 	time.Sleep(time.Millisecond)
 
 	var isDelete bool
-	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	lines := strings.Split(strings.TrimSpace(updater.String()), "\n")
 	for i := 0; i+1 < len(lines); i += 2 {
 		line1 := strings.TrimSpace(lines[i])
 		line2 := strings.TrimSpace(lines[i+1])
