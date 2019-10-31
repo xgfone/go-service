@@ -325,6 +325,34 @@ func (lb *LoadBalancer) endpointIsAlive(endpoint Endpoint, key string) Endpoint 
 	return nil
 }
 
+func (lb *LoadBalancer) selectEndpoint(req Request, raddr string, updateSession bool) (
+	total, index int, endpoint Endpoint, interval time.Duration, handler FailHandler) {
+	lb.lock.RLock()
+	if total = len(lb.endpoints); total == 0 {
+		lb.lock.Unlock()
+		return
+	}
+
+	if updateSession {
+		endpoint, index = lb.getEndpointFromSession(raddr)
+		endpoint = lb.endpointIsAlive(endpoint, raddr)
+	}
+
+	if endpoint == nil {
+		index = lb.selector(req, lb.endpoints)
+		endpoint = lb.endpoints[index]
+		if updateSession {
+			lb.setEndpointToSession(raddr, endpoint)
+		}
+	}
+
+	interval = lb.failInterval
+	handler = lb.failHandler
+	lb.lock.RUnlock()
+
+	return
+}
+
 // RoundTrip selects an endpoint, then call it. If failed, it will retry it
 // by the fail handler.
 //
@@ -335,23 +363,10 @@ func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Respon
 		raddr = sreq.SessionID()
 	}
 
-	lb.lock.RLock()
-	_len := len(lb.endpoints)
-	if _len == 0 {
-		lb.lock.Unlock()
+	_len, index, endpoint, interval, failHandler := lb.selectEndpoint(req, raddr, true)
+	if endpoint == nil {
 		return nil, ErrNoAvailableEndpoint
 	}
-
-	endpoint, index := lb.getEndpointFromSession(raddr)
-	if endpoint = lb.endpointIsAlive(endpoint, raddr); endpoint == nil {
-		index = lb.selector(req, lb.endpoints)
-		endpoint = lb.endpoints[index]
-		lb.setEndpointToSession(raddr, endpoint)
-	}
-
-	interval := lb.failInterval
-	failHandler := lb.failHandler
-	lb.lock.RUnlock()
 
 	var retry int
 	err = errInit
@@ -387,4 +402,12 @@ func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Respon
 	}
 
 	return
+}
+
+// SelectEndpoint selects an active endpoint.
+//
+// Return nil if no any active endpoint.
+func (lb *LoadBalancer) SelectEndpoint() Endpoint {
+	_, _, endpoint, _, _ := lb.selectEndpoint(NewNoopRequest(), "", false)
+	return endpoint
 }

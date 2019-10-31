@@ -85,3 +85,9 @@ func Chain(outer Middleware, others ...Middleware) Middleware {
 		return outer(next)
 	}
 }
+
+type noopRequest struct{}
+
+// NewNoopRequest returns a Noop request.
+func NewNoopRequest() Request                  { return noopRequest{} }
+func (r noopRequest) RemoteAddrString() string { return "" }
