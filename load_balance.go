@@ -89,25 +89,23 @@ func (lb *LoadBalancer) deleteEndpointFromSession(addr string) {
 	}
 }
 
-func (lb *LoadBalancer) selectEndpoint(req Request, raddr string, updateSession bool) (
+func (lb *LoadBalancer) selectEndpoint(req Request, raddr string) (
 	total, index int, endpoint Endpoint) {
 	if total = lb.Provider.Len(); total == 0 {
 		return
 	}
 
-	if updateSession {
-		endpoint = lb.getEndpointFromSession(raddr)
-		if endpoint != nil && !lb.Provider.IsActive(endpoint) {
-			lb.deleteEndpointFromSession(raddr)
-			endpoint = nil
-		}
+	endpoint = lb.getEndpointFromSession(raddr)
+	if endpoint != nil && !lb.Provider.IsActive(endpoint) {
+		lb.deleteEndpointFromSession(raddr)
+		endpoint = nil
 	}
 
 	if endpoint == nil {
 		index, endpoint = lb.Provider.Select(req)
-		if updateSession {
-			lb.setEndpointToSession(raddr, endpoint)
-		}
+		lb.setEndpointToSession(raddr, endpoint)
+	} else {
+		lb.Provider.Hit(endpoint)
 	}
 
 	return
@@ -131,7 +129,7 @@ func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Respon
 		raddr = sreq.SessionID()
 	}
 
-	total, index, endpoint := lb.selectEndpoint(req, raddr, true)
+	total, index, endpoint := lb.selectEndpoint(req, raddr)
 	if endpoint == nil {
 		return nil, ErrNoAvailableEndpoint
 	}
@@ -173,12 +171,4 @@ func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Respon
 	}
 
 	return
-}
-
-// SelectEndpoint selects an active endpoint.
-//
-// Return nil if no any active endpoint.
-func (lb *LoadBalancer) SelectEndpoint(req Request) Endpoint {
-	_, _, endpoint := lb.selectEndpoint(req, "", false)
-	return endpoint
 }

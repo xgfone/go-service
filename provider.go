@@ -37,8 +37,12 @@ type Provider interface {
 	// And if no active endpoints, it should return nil for Endpoint.
 	SelectByIndex(index int) (realIndex int, endpoint Endpoint)
 
-	// Finish is used to notice the provider that the endpoint has finished
-	// to handle the request.
+	// Hit should be called when the endpoint is cached and used again,
+	// which is used to notice the provider that the endpoint is using.
+	Hit(Endpoint)
+
+	// Finish should be called when the endpoint has finished to handle the
+	// request which is used to notice the provider that the endpoint is idle.
 	Finish(endpoint Endpoint)
 }
 
@@ -253,7 +257,19 @@ func (p *GeneralProvider) SelectByIndex(index int) (realIndex int, endpoint Endp
 	return
 }
 
-// Finish notices the selector that the endpoint has finished to handle the request.
+// Hit should be called when the endpoint is cached and used again,
+// which is used to notice the provider that the endpoint is using.
+func (p *GeneralProvider) Hit(endpoint Endpoint) {
+	p.lock.RLock()
+	cbs := append([]func(Endpoint){}, p.onSelects...)
+	p.lock.RUnlock()
+	for _, cb := range cbs {
+		cb(endpoint)
+	}
+}
+
+// Finish should be called when the endpoint has finished to handle the
+// request which is used to notice the provider that the endpoint is idle.
 func (p *GeneralProvider) Finish(endpoint Endpoint) {
 	p.lock.RLock()
 	selector := p.selector
