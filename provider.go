@@ -88,10 +88,10 @@ type GeneralProvider struct {
 	endpoints []Endpoint
 	eplen     uint32
 
-	onAdds    []func(Endpoint)
-	OnDeletes []func(Endpoint)
-	onSelects []func(Endpoint)
-	onFinishs []func(Endpoint)
+	onAdds    *eventCallbacks
+	onDeletes *eventCallbacks
+	onSelects *eventCallbacks
+	onFinishs *eventCallbacks
 }
 
 // NewGeneralProvider returns a new GeneralProvider with the selector.
@@ -100,7 +100,16 @@ func NewGeneralProvider(selector Selector, endpoints ...Endpoint) *GeneralProvid
 		panic("GeneralProvider: the selector must not be nil")
 	}
 
-	p := &GeneralProvider{selector: selector, endpoints: make([]Endpoint, 0, 8)}
+	p := &GeneralProvider{
+		selector:  selector,
+		endpoints: make([]Endpoint, 0, 8),
+
+		onAdds:    newEventCallbacks(),
+		onDeletes: newEventCallbacks(),
+		onSelects: newEventCallbacks(),
+		onFinishs: newEventCallbacks(),
+	}
+
 	p.addEndpoints(endpoints...)
 	return p
 }
@@ -143,7 +152,7 @@ func (p *GeneralProvider) Endpoints() []Endpoint {
 // AddEndpoint adds the endpoint.
 func (p *GeneralProvider) AddEndpoint(endpoint Endpoint) {
 	addr := endpoint.String()
-	var cbs []func(Endpoint)
+
 	var old Endpoint
 	p.lock.Lock()
 	for i, ep := range p.endpoints {
@@ -157,7 +166,6 @@ func (p *GeneralProvider) AddEndpoint(endpoint Endpoint) {
 		p.endpoints = append(p.endpoints, endpoint)
 		sort.Sort(endpoints(p.endpoints))
 	}
-	cbs = append([]func(Endpoint){}, p.onAdds...)
 	p.updateLen(len(p.endpoints))
 	p.lock.Unlock()
 
@@ -168,9 +176,7 @@ func (p *GeneralProvider) AddEndpoint(endpoint Endpoint) {
 		eps.Activate(context.Background())
 	}
 
-	for _, cb := range cbs {
-		cb(endpoint)
-	}
+	p.onAdds.Call(endpoint)
 }
 
 // DelEndpoint deletes the endpoint.
@@ -180,7 +186,6 @@ func (p *GeneralProvider) DelEndpoint(endpoint Endpoint) {
 
 // DelEndpointByString deletes the endpoint.
 func (p *GeneralProvider) DelEndpointByString(endpoint string) {
-	var cbs []func(Endpoint)
 	var deleted Endpoint
 	var exist bool
 
@@ -190,7 +195,6 @@ func (p *GeneralProvider) DelEndpointByString(endpoint string) {
 			exist = true
 			deleted = ep
 			p.endpoints[i] = nil
-			cbs = append([]func(Endpoint){}, p.OnDeletes...)
 		}
 	}
 	if exist {
@@ -203,9 +207,7 @@ func (p *GeneralProvider) DelEndpointByString(endpoint string) {
 		eps.Deactivate(context.Background())
 	}
 
-	for _, cb := range cbs {
-		cb(deleted)
-	}
+	p.onDeletes.Call(deleted)
 }
 
 // IsActive reports whether the endpoint is still active.
@@ -223,19 +225,13 @@ func (p *GeneralProvider) IsActive(endpoint Endpoint) (active bool) {
 
 // Select selects an endpoint by the selector.
 func (p *GeneralProvider) Select(req Request) (index int, endpoint Endpoint) {
-	var cbs []func(Endpoint)
 	p.lock.RLock()
 	if len(p.endpoints) > 0 {
 		index = p.selector.Select(req, p.endpoints)
 		endpoint = p.endpoints[index]
-		cbs = append([]func(Endpoint){}, p.onSelects...)
 	}
 	p.lock.RUnlock()
-
-	for _, cb := range cbs {
-		cb(endpoint)
-	}
-
+	p.onSelects.Call(endpoint)
 	return
 }
 
@@ -244,7 +240,6 @@ func (p *GeneralProvider) Select(req Request) (index int, endpoint Endpoint) {
 // If the index do not exist, it will return the next endpoint.
 // And return (0, nil) if no active endpoints.
 func (p *GeneralProvider) SelectByIndex(index int) (realIndex int, endpoint Endpoint) {
-	var cbs []func(Endpoint)
 	p.lock.RLock()
 	if _len := len(p.endpoints); _len > 0 {
 		if index >= _len {
@@ -252,83 +247,44 @@ func (p *GeneralProvider) SelectByIndex(index int) (realIndex int, endpoint Endp
 		}
 		realIndex = index
 		endpoint = p.endpoints[realIndex]
-		cbs = append([]func(Endpoint){}, p.onSelects...)
 	}
 	p.lock.RUnlock()
-
-	for _, cb := range cbs {
-		cb(endpoint)
-	}
-
+	p.onSelects.Call(endpoint)
 	return
 }
 
 // Hit should be called when the endpoint is cached and used again,
 // which is used to notice the provider that the endpoint is using.
 func (p *GeneralProvider) Hit(endpoint Endpoint) {
-	p.lock.RLock()
-	cbs := append([]func(Endpoint){}, p.onSelects...)
-	p.lock.RUnlock()
-	for _, cb := range cbs {
-		cb(endpoint)
-	}
+	p.onSelects.Call(endpoint)
 }
 
 // Finish should be called when the endpoint has finished to handle the
 // request which is used to notice the provider that the endpoint is idle.
 func (p *GeneralProvider) Finish(endpoint Endpoint) {
-	p.lock.RLock()
-	cbs := append([]func(Endpoint){}, p.onFinishs...)
-	p.lock.RUnlock()
-	for _, cb := range cbs {
-		cb(endpoint)
-	}
+	p.onFinishs.Call(endpoint)
 }
 
 // OnAdd adds the callback function, which will be called when an endpoint
 // is added.
 func (p *GeneralProvider) OnAdd(f func(Endpoint)) {
-	if f == nil {
-		panic("GeneralProvider: the OnAdd callback function must not be nil")
-	}
-
-	p.lock.Lock()
-	p.onAdds = append(p.onAdds, f)
-	p.lock.Unlock()
+	p.onAdds.Append(f)
 }
 
 // OnDelete adds the callback function, which will be called when an endpoint
 // is deleted.
 func (p *GeneralProvider) OnDelete(f func(Endpoint)) {
-	if f == nil {
-		panic("GeneralProvider: the OnDelete callback function must not be nil")
-	}
-
-	p.lock.Lock()
-	p.OnDeletes = append(p.OnDeletes, f)
-	p.lock.Unlock()
+	p.onDeletes.Append(f)
 }
 
 // OnSelect adds the callback function, which will be called when an endpoint
 // is selected.
 func (p *GeneralProvider) OnSelect(f func(Endpoint)) {
-	if f == nil {
-		panic("GeneralProvider: the OnSelect callback function must not be nil")
-	}
-
-	p.lock.Lock()
-	p.onSelects = append(p.onSelects, f)
-	p.lock.Unlock()
+	p.onSelects.Append(f)
 }
 
 // OnFinish adds the callback function, which will be called when an endpoint
 // has finished to handle the request.
 func (p *GeneralProvider) OnFinish(f func(Endpoint)) {
-	if f == nil {
-		panic("GeneralProvider: the OnFinish callback function must not be nil")
-	}
-
-	p.lock.Lock()
-	p.onFinishs = append(p.onFinishs, f)
-	p.lock.Unlock()
+	p.onFinishs.Append(f)
 }
