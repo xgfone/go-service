@@ -18,6 +18,7 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"sync/atomic"
 )
 
 // Provider is a provider of the endpoints.
@@ -85,6 +86,7 @@ type GeneralProvider struct {
 
 	selector  Selector
 	endpoints []Endpoint
+	eplen     uint32
 
 	onAdds    []func(Endpoint)
 	OnDeletes []func(Endpoint)
@@ -117,14 +119,16 @@ func (p *GeneralProvider) SetSelector(s Selector) {
 func (p *GeneralProvider) addEndpoints(eps ...Endpoint) {
 	p.endpoints = append(p.endpoints, eps...)
 	sort.Sort(endpoints(p.endpoints))
+	p.updateLen(len(p.endpoints))
+}
+
+func (p *GeneralProvider) updateLen(_len int) {
+	atomic.StoreUint32(&p.eplen, uint32(_len))
 }
 
 // Len returns the number of the endpoints.
 func (p *GeneralProvider) Len() int {
-	p.lock.RLock()
-	_len := len(p.endpoints)
-	p.lock.RUnlock()
-	return _len
+	return int(atomic.LoadUint32(&p.eplen))
 }
 
 // Endpoints returns the copy of all the endpoints.
@@ -154,6 +158,7 @@ func (p *GeneralProvider) AddEndpoint(endpoint Endpoint) {
 		sort.Sort(endpoints(p.endpoints))
 	}
 	cbs = append([]func(Endpoint){}, p.onAdds...)
+	p.updateLen(len(p.endpoints))
 	p.lock.Unlock()
 
 	if eps, ok := old.(EndpointStatus); ok {
@@ -190,6 +195,7 @@ func (p *GeneralProvider) DelEndpointByString(endpoint string) {
 	}
 	if exist {
 		sort.Sort(endpoints(p.endpoints))
+		p.updateLen(len(p.endpoints))
 	}
 	p.lock.Unlock()
 
