@@ -25,19 +25,19 @@ import (
 // Notice: the selector should return the result as soon as possible.
 type Selector interface {
 	Select(Request, []Endpoint) (index int)
-	Finish(index int, endpoint Endpoint)
+	Finish(endpoint Endpoint)
 }
 
 type selectorFunc struct {
 	s func(Request, []Endpoint) (index int)
-	f func(int, Endpoint)
+	f func(Endpoint)
 }
 
-func (f selectorFunc) Finish(i int, e Endpoint)                    { f.f(i, e) }
+func (f selectorFunc) Finish(e Endpoint)                           { f.f(e) }
 func (f selectorFunc) Select(r Request, es []Endpoint) (index int) { return f.s(r, es) }
 
 // SelectorFunc converts the functions to a Selector.
-func SelectorFunc(selectf func(Request, []Endpoint) int, finishf func(int, Endpoint)) Selector {
+func SelectorFunc(selectf func(Request, []Endpoint) int, finishf func(Endpoint)) Selector {
 	return selectorFunc{s: selectf, f: finishf}
 }
 

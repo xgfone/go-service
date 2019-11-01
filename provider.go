@@ -32,11 +32,14 @@ type Provider interface {
 	Select(Request) (index int, endpoint Endpoint)
 
 	// SelectByIndex selects the endpoint by the index information.
+	//
+	// If the index does not exist, it maybe return the next endpoint.
+	// And if no active endpoints, it should return nil for Endpoint.
 	SelectByIndex(index int) (realIndex int, endpoint Endpoint)
 
 	// Finish is used to notice the provider that the endpoint has finished
 	// to handle the request.
-	Finish(index int, endpoint Endpoint)
+	Finish(endpoint Endpoint)
 }
 
 // ProviderEndpointManager is an interface to manage the endpoints.
@@ -251,13 +254,13 @@ func (p *GeneralProvider) SelectByIndex(index int) (realIndex int, endpoint Endp
 }
 
 // Finish notices the selector that the endpoint has finished to handle the request.
-func (p *GeneralProvider) Finish(index int, endpoint Endpoint) {
+func (p *GeneralProvider) Finish(endpoint Endpoint) {
 	p.lock.RLock()
 	selector := p.selector
 	cbs := append([]func(Endpoint){}, p.onFinishs...)
 	p.lock.RUnlock()
 
-	selector.Finish(index, endpoint)
+	selector.Finish(endpoint)
 	for _, cb := range cbs {
 		cb(endpoint)
 	}

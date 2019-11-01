@@ -135,6 +135,7 @@ func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Respon
 	if endpoint == nil {
 		return nil, ErrNoAvailableEndpoint
 	}
+	defer lb.Finish(endpoint)
 
 	var retry int
 	err = errInit
