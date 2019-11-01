@@ -52,6 +52,9 @@ type Endpoint interface {
 	String() string
 
 	// IsHealthy reports whether the current endpoint is healthy.
+	//
+	// It is used to detect whether the endpoint is still active.
+	// If you use other alive probe, the method maybe always return true.
 	IsHealthy(context.Context) bool
 
 	// RoundTrip sends the request to the current endpoint.
@@ -67,6 +70,17 @@ type EndpointStatus interface {
 	// Deactivate is called when the endpoint is removed from the loadbalancer,
 	// if the endpoint has implemented the interface.
 	Deactivate(context.Context)
+}
+
+// WeightEndpoint represents an endpoint with the weight.
+type WeightEndpoint interface {
+	Endpoint
+
+	// Weight returns the weight of the endpoint, which may be equal to 0,
+	// but not the negative.
+	//
+	// The larger the weight, the higher the weight.
+	Weight() int
 }
 
 // HealthChecker is used to check the health status of an endpoint.
@@ -92,3 +106,26 @@ type noopRequest struct{ addr string }
 // which may be empty.
 func NewNoopRequest(addr string) Request       { return noopRequest{addr: addr} }
 func (r noopRequest) RemoteAddrString() string { return r.addr }
+
+// NewWeightEndpoint returns a WeightEndpoint with the weight and the endpoint.
+func NewWeightEndpoint(weight int, endpoint Endpoint) WeightEndpoint {
+	return weightEndpoint{Endpoint: endpoint, weight: weight}
+}
+
+type weightEndpoint struct {
+	Endpoint
+
+	weight int
+}
+
+func (we weightEndpoint) Weight() int { return we.weight }
+func (we weightEndpoint) Activate(ctx context.Context) {
+	if eps, ok := we.Endpoint.(EndpointStatus); ok {
+		eps.Activate(ctx)
+	}
+}
+func (we weightEndpoint) Deactivate(ctx context.Context) {
+	if eps, ok := we.Endpoint.(EndpointStatus); ok {
+		eps.Deactivate(ctx)
+	}
+}

@@ -182,10 +182,10 @@ type StatusLoadBalancer struct {
 }
 
 // NewStatusLoadBalancer returns a new StatusLoadBalancer.
-func NewStatusLoadBalancer() *StatusLoadBalancer {
-	lb := NewLoadBalancer()
+func NewStatusLoadBalancer(provider Provider) *StatusLoadBalancer {
+	lb := NewLoadBalancer(provider)
 	hc := NewHealthCheck()
-	hc.AddUpdater(lb)
+	hc.AddUpdater(lb.EndpointManager())
 	return &StatusLoadBalancer{
 		LoadBalancer: lb,
 		HealthCheck:  hc,

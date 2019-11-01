@@ -20,51 +20,73 @@ import (
 	"net"
 )
 
-var selectors = make(map[string]Selector, 8)
-
-func init() {
-	RegisterSelector("random", RandomSelector())
-	RegisterSelector("sourceip", SourceIPSelector())
-	RegisterSelector("roundrobin", RoundRobinSelector())
+// Selector is used to to select the active endpoint to be used.
+//
+// Notice: the selector should return the result as soon as possible.
+type Selector interface {
+	Select(Request, []Endpoint) (index int)
+	Finish(index int, endpoint Endpoint)
 }
 
-// Selector is used to to select the service endpoint to be used,
-// which will return the index of the used endpoint.
-//
-// It won't be called concurrently.
-type Selector func(req Request, endpoints []Endpoint) (index int)
-
-// RegisterSelector registers the selector with the name, which will reset
-// the selector and return true if the name has been registered.
-//
-// It has registered the "random", "roundrobin", "sourceip" selectors by the default.
-func RegisterSelector(name string, selector Selector) bool {
-	_, ok := selectors[name]
-	selectors[name] = selector
-	return ok
+type selectorFunc struct {
+	s func(Request, []Endpoint) (index int)
+	f func(int, Endpoint)
 }
 
-// GetSelector returns the registered selector by the name.
-//
-// Return nil if there is no selector.
-func GetSelector(name string) Selector {
-	return selectors[name]
+func (f selectorFunc) Finish(i int, e Endpoint)                    { f.f(i, e) }
+func (f selectorFunc) Select(r Request, es []Endpoint) (index int) { return f.s(r, es) }
+
+// SelectorFunc converts the functions to a Selector.
+func SelectorFunc(selectf func(Request, []Endpoint) int, finishf func(int, Endpoint)) Selector {
+	return selectorFunc{s: selectf, f: finishf}
 }
 
 // RandomSelector returns a random selector which returns a endpoint randomly.
+//
+// If the endpoint has implemented the inerface WeightEndpoint, it will select
+// an endpoint based on the weight.
 func RandomSelector() Selector {
-	return func(req Request, endpoints []Endpoint) int {
-		return rand.Intn(len(endpoints))
+	getWeight := func(ep Endpoint) (weight int) {
+		if we, ok := ep.(WeightEndpoint); ok {
+			weight = we.Weight()
+		}
+		return
 	}
+	return SelectorFunc(func(req Request, endpoints []Endpoint) int {
+		var lastWeight int
+		var totalWeight int
+
+		sameWeight := true
+		for i, ep := range endpoints {
+			weight := getWeight(ep)
+			totalWeight += weight
+			if i == 0 {
+				lastWeight = weight
+			} else if sameWeight && weight != lastWeight {
+				sameWeight = false
+			}
+		}
+
+		if sameWeight || totalWeight == 0 {
+			offset := rand.Intn(totalWeight)
+			for i, ep := range endpoints {
+				if offset -= getWeight(ep); offset < 0 {
+					return i
+				}
+			}
+		}
+
+		return rand.Intn(len(endpoints))
+	}, nil)
 }
 
 // RoundRobinSelector returns a RoundRobin selector.
 func RoundRobinSelector() Selector {
 	var last uint64
-	return func(req Request, endpoints []Endpoint) int {
+	return SelectorFunc(func(req Request, endpoints []Endpoint) int {
 		last++
 		return int(last % uint64(len(endpoints)))
-	}
+	}, nil)
 }
 
 // SourceIPSelector returns an endpoint selector based on the source ip.
@@ -73,7 +95,7 @@ func RoundRobinSelector() Selector {
 // the RoundRobin selector.
 func SourceIPSelector() Selector {
 	rr := RoundRobinSelector()
-	return func(req Request, endpoints []Endpoint) int {
+	return SelectorFunc(func(req Request, endpoints []Endpoint) int {
 		var ip net.IP
 		if raddr, ok := req.(interface{ RemoteAddr() net.Addr }); ok {
 			switch addr := raddr.RemoteAddr().(type) {
@@ -97,9 +119,9 @@ func SourceIPSelector() Selector {
 		case net.IPv6len:
 			value = binary.BigEndian.Uint64(ip[8:16])
 		default:
-			return rr(req, endpoints)
+			return rr.Select(req, endpoints)
 		}
 
 		return int(value % uint64(len(endpoints)))
-	}
+	}, nil)
 }

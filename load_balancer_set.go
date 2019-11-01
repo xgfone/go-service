@@ -22,6 +22,16 @@ import (
 type LoadBalancerSet struct {
 	lock  sync.RWMutex
 	lbset map[string]*LoadBalancer
+
+	provider Provider
+}
+
+// NewLoadBalancerSet returns a new LoadBalancerSet with the default provider.
+func NewLoadBalancerSet(provider Provider) *LoadBalancerSet {
+	return &LoadBalancerSet{
+		lbset:    make(map[string]*LoadBalancer, 8),
+		provider: provider,
+	}
 }
 
 // GetAllNames returns the names of all the loadbalancers.
@@ -69,7 +79,7 @@ func (lbs *LoadBalancerSet) GetOrNewLoadBalancer(name string) *LoadBalancer {
 	lbs.lock.Lock()
 	lb, ok := lbs.lbset[name]
 	if !ok {
-		lb = NewLoadBalancer()
+		lb = NewLoadBalancer(lbs.provider)
 		lbs.lbset[name] = lb
 	}
 	lbs.lock.Unlock()
@@ -80,6 +90,17 @@ func (lbs *LoadBalancerSet) GetOrNewLoadBalancer(name string) *LoadBalancer {
 type StatusLoadBalancerSet struct {
 	lock  sync.RWMutex
 	lbset map[string]*StatusLoadBalancer
+
+	provider Provider
+}
+
+// NewStatusLoadBalancerSet returns a new StatusLoadBalancerSet
+// with the default provider.
+func NewStatusLoadBalancerSet(provider Provider) *StatusLoadBalancerSet {
+	return &StatusLoadBalancerSet{
+		lbset:    make(map[string]*StatusLoadBalancer, 8),
+		provider: provider,
+	}
 }
 
 // GetAllNames returns the names of all the StatusLoadBalancers.
@@ -127,7 +148,7 @@ func (slbs *StatusLoadBalancerSet) GetOrNewStatusLoadBalancer(name string) *Stat
 	slbs.lock.Lock()
 	slb, ok := slbs.lbset[name]
 	if !ok {
-		slb = NewStatusLoadBalancer()
+		slb = NewStatusLoadBalancer(slbs.provider)
 		slbs.lbset[name] = slb
 	}
 	slbs.lock.Unlock()

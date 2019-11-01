@@ -20,17 +20,11 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math/rand"
-	"net"
 	"net/http"
 	"time"
 
 	"github.com/xgfone/go-service"
 )
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
 
 type request struct {
 	method string
@@ -54,12 +48,9 @@ func main() {
 	timeout := time.Second
 	interval := time.Second * 5
 
-	lb := service.
-		NewLoadBalancer().
-		SetSelector(service.RandomSelector()).
-		SetFailHandler(service.FailTry(0))
+	lb := service.NewLoadBalancer(nil)
 	hc := service.NewHealthCheck()
-	hc.AddUpdater(lb)
+	hc.AddUpdater(lb.EndpointManager())
 	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.1:80", nil), interval, timeout)
 	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.2:80", nil), interval, timeout)
 	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.3:80", nil), interval, timeout)
@@ -67,8 +58,7 @@ func main() {
 	// Or you can do this by using StatusLoadBalancer as follow,
 	// which is the union of LoadBalancer and HealthCheck.
 	//
-	// lb := service.NewStatusLoadBalancer()
-	// lb.SetSelector(service.RandomSelector()).SetFailHandler(service.FailTry(0))
+	// lb := service.NewStatusLoadBalancer(nil)
 	// lb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.1:80", nil), interval, timeout)
 	// lb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.2:80", nil), interval, timeout)
 	// lb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.3:80", nil), interval, timeout)
@@ -76,7 +66,7 @@ func main() {
 	// Wait to check the health status of all end endpoints.
 	time.Sleep(time.Second)
 
-	fmt.Println(lb.Endpoints())
+	fmt.Println(lb.EndpointManager().Endpoints())
 	// Output:
 	// [192.168.1.1:80 192.168.1.2:80 192.168.1.3:80]
 
@@ -108,14 +98,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math/rand"
 	"net"
 	"time"
 
 	"github.com/xgfone/go-service"
 )
-
-func init() { rand.Seed(time.Now().UnixNano()) }
 
 func dial(ctx context.Context, address string) (net.Conn, error) { return net.Dial("tcp", address) }
 
@@ -148,8 +135,7 @@ func (r request) ReadResponse(conn *net.TCPConn) (resp service.Response, err err
 func main() {
 	timeout := time.Second
 	interval := time.Second * 5
-	lb := service.NewStatusLoadBalancer()
-	lb.SetSelector(service.RandomSelector()).SetFailHandler(service.FailTry(0))
+	lb := service.NewStatusLoadBalancer(nil)
 	lb.AddEndpoint(service.NewTCPEndpoint("192.168.1.1:80", dial, 10, time.Second), interval, timeout)
 	lb.AddEndpoint(service.NewTCPEndpoint("192.168.1.2:80", dial, 10, time.Second), interval, timeout)
 	lb.AddEndpoint(service.NewTCPEndpoint("192.168.1.3:80", dial, 10, time.Second), interval, timeout)
@@ -157,7 +143,7 @@ func main() {
 	// Wait to check the health status of all end endpoints.
 	time.Sleep(time.Second)
 
-	fmt.Println(lb.Endpoints())
+	fmt.Println(lb.EndpointManager().Endpoints())
 	// Output:
 	// [192.168.1.1:80 192.168.1.2:80 192.168.1.3:80]
 
@@ -182,16 +168,11 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"time"
 
 	"github.com/xgfone/go-service"
 )
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
 
 type request http.Request
 
@@ -230,8 +211,7 @@ func main() {
 	timeout := time.Second
 	interval := time.Second * 5
 
-	slb := service.NewStatusLoadBalancer()
-	slb.SetSelector(service.RandomSelector()).SetFailHandler(service.FailTry(0))
+	slb := service.NewStatusLoadBalancer(nil)
 	slb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.1:80", nil), interval, timeout)
 	slb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.2:80", nil), interval, timeout)
 	slb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.3:80", nil), interval, timeout)
@@ -254,14 +234,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math/rand"
 	"net"
 	"time"
 
 	"github.com/xgfone/go-service"
 )
-
-func init() { rand.Seed(time.Now().UnixNano()) }
 
 func dial(ctx context.Context, address string) (net.Conn, error) { return net.Dial("tcp", address) }
 
@@ -328,8 +305,7 @@ func proxy(lb *service.StatusLoadBalancer, conn *net.TCPConn) {
 func main() {
 	timeout := time.Second
 	interval := time.Second * 5
-	lb := service.NewStatusLoadBalancer()
-	lb.SetSelector(service.RandomSelector()).SetFailHandler(service.FailTry(0))
+	lb := service.NewStatusLoadBalancer(nil)
 	lb.AddEndpoint(service.NewTCPEndpoint("192.168.1.1:80", dial, 10, time.Second), interval, timeout)
 	lb.AddEndpoint(service.NewTCPEndpoint("192.168.1.2:80", dial, 10, time.Second), interval, timeout)
 	lb.AddEndpoint(service.NewTCPEndpoint("192.168.1.3:80", dial, 10, time.Second), interval, timeout)
