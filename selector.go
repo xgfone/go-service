@@ -24,21 +24,18 @@ import (
 //
 // Notice: the selector should return the result as soon as possible.
 type Selector interface {
-	Select(Request, []Endpoint) (index int)
-	Finish(endpoint Endpoint)
+	// Select returns the index of the selected endpoint from endpoints
+	// by the request.
+	Select(request Request, endpoints []Endpoint) (index int)
 }
 
-type selectorFunc struct {
-	s func(Request, []Endpoint) (index int)
-	f func(Endpoint)
-}
+type selectorFunc func(Request, []Endpoint) int
 
-func (f selectorFunc) Finish(e Endpoint)                           { f.f(e) }
-func (f selectorFunc) Select(r Request, es []Endpoint) (index int) { return f.s(r, es) }
+func (f selectorFunc) Select(r Request, es []Endpoint) int { return f(r, es) }
 
 // SelectorFunc converts the functions to a Selector.
-func SelectorFunc(selectf func(Request, []Endpoint) int, finishf func(Endpoint)) Selector {
-	return selectorFunc{s: selectf, f: finishf}
+func SelectorFunc(f func(Request, []Endpoint) (index int)) Selector {
+	return selectorFunc(f)
 }
 
 // RandomSelector returns a random selector which returns a endpoint randomly.
@@ -77,7 +74,7 @@ func RandomSelector() Selector {
 		}
 
 		return rand.Intn(len(endpoints))
-	}, nil)
+	})
 }
 
 // RoundRobinSelector returns a RoundRobin selector.
@@ -86,7 +83,7 @@ func RoundRobinSelector() Selector {
 	return SelectorFunc(func(req Request, endpoints []Endpoint) int {
 		last++
 		return int(last % uint64(len(endpoints)))
-	}, nil)
+	})
 }
 
 // SourceIPSelector returns an endpoint selector based on the source ip.
@@ -123,5 +120,5 @@ func SourceIPSelector() Selector {
 		}
 
 		return int(value % uint64(len(endpoints)))
-	}, nil)
+	})
 }

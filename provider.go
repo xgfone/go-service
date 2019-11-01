@@ -272,11 +272,8 @@ func (p *GeneralProvider) Hit(endpoint Endpoint) {
 // request which is used to notice the provider that the endpoint is idle.
 func (p *GeneralProvider) Finish(endpoint Endpoint) {
 	p.lock.RLock()
-	selector := p.selector
 	cbs := append([]func(Endpoint){}, p.onFinishs...)
 	p.lock.RUnlock()
-
-	selector.Finish(endpoint)
 	for _, cb := range cbs {
 		cb(endpoint)
 	}
