@@ -20,7 +20,7 @@ import (
 
 // SessionManager is used to manage the connection session.
 //
-// Notice: these methods must not panic.
+// Notice: these methods must be thread-safe and not panic.
 type SessionManager interface {
 	// GetEndpoint returns the Endpoint by the request address.
 	//

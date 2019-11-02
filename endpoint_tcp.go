@@ -58,13 +58,7 @@ type TCPRequest interface {
 	ReadResponse(conn *net.TCPConn) (resp Response, err error)
 }
 
-// NewTCPRequest returns a Request, which has implemented the interface:
-//
-//   interface {
-//       SendRequest(conn *net.TCPConn) (err error)
-//       ReadResponse(conn *net.TCPConn) (resp Response, err error)
-//   }
-//
+// NewTCPRequest returns a TCPRequest.
 func NewTCPRequest(remoteAddr string, sendReq func(*net.TCPConn) error,
 	readResp func(*net.TCPConn) (Response, error)) TCPRequest {
 	return tcpRequest{RemoteAddr: remoteAddr, SendReq: sendReq, ReadResp: readResp}

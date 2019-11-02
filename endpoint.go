@@ -67,11 +67,11 @@ type Endpoint interface {
 
 // EndpointStatus is used to manage the status of the endpoint.
 type EndpointStatus interface {
-	// Activate is called when the endpoint is added into the loadbalancer,
+	// Activate is called when the endpoint is added into the provider,
 	// if the endpoint has implemented the interface.
 	Activate(context.Context)
 
-	// Deactivate is called when the endpoint is removed from the loadbalancer,
+	// Deactivate is called when the endpoint is removed from the provider,
 	// if the endpoint has implemented the interface.
 	Deactivate(context.Context)
 }
