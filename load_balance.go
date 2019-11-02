@@ -34,8 +34,16 @@ var (
 type LoadBalancer struct {
 	Provider
 
-	Session      SessionManager
-	FailHandler  FailHandler
+	// Session is used to manage the session stick, which is based on memory.
+	// But it can be set to nil to disable it.
+	Session SessionManager
+
+	// FailHandler is used to handle the failure, which is FailOver(0)
+	// by default.
+	FailHandler FailHandler
+
+	// FailInterval is the interval time between the retries, which is 10ms
+	// by default.
 	FailInterval time.Duration
 }
 

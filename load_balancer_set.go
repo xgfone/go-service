@@ -16,6 +16,7 @@ package service
 
 import (
 	"sync"
+	"time"
 )
 
 // LoadBalancerSet is a set of LoadBalancers.
@@ -23,14 +24,23 @@ type LoadBalancerSet struct {
 	lock  sync.RWMutex
 	lbset map[string]*LoadBalancer
 
-	provider Provider
+	provider     Provider
+	session      SessionManager
+	failHandler  FailHandler
+	failInterval time.Duration
 }
 
-// NewLoadBalancerSet returns a new LoadBalancerSet with the default provider.
-func NewLoadBalancerSet(provider Provider) *LoadBalancerSet {
+// NewLoadBalancerSet returns a new LoadBalancerSet with the default provider,
+// sessionManager, failHandler, and failInterval.
+func NewLoadBalancerSet(provider Provider, session SessionManager,
+	failHandler FailHandler, failInterval time.Duration) *LoadBalancerSet {
 	return &LoadBalancerSet{
-		lbset:    make(map[string]*LoadBalancer, 8),
-		provider: provider,
+		lbset: make(map[string]*LoadBalancer, 8),
+
+		provider:     provider,
+		session:      session,
+		failHandler:  failHandler,
+		failInterval: failInterval,
 	}
 }
 
@@ -80,6 +90,9 @@ func (lbs *LoadBalancerSet) GetOrNewLoadBalancer(name string) *LoadBalancer {
 	lb, ok := lbs.lbset[name]
 	if !ok {
 		lb = NewLoadBalancer(lbs.provider)
+		lb.Session = lbs.session
+		lb.FailHandler = lbs.failHandler
+		lb.FailInterval = lbs.failInterval
 		lbs.lbset[name] = lb
 	}
 	lbs.lock.Unlock()
@@ -91,15 +104,23 @@ type StatusLoadBalancerSet struct {
 	lock  sync.RWMutex
 	lbset map[string]*StatusLoadBalancer
 
-	provider Provider
+	provider     Provider
+	session      SessionManager
+	failHandler  FailHandler
+	failInterval time.Duration
 }
 
-// NewStatusLoadBalancerSet returns a new StatusLoadBalancerSet
-// with the default provider.
-func NewStatusLoadBalancerSet(provider Provider) *StatusLoadBalancerSet {
+// NewStatusLoadBalancerSet returns a new StatusLoadBalancerSet with the default
+// provider, sessionManager, failHandler, and failInterval.
+func NewStatusLoadBalancerSet(provider Provider, session SessionManager,
+	failHandler FailHandler, failInterval time.Duration) *StatusLoadBalancerSet {
 	return &StatusLoadBalancerSet{
-		lbset:    make(map[string]*StatusLoadBalancer, 8),
-		provider: provider,
+		lbset: make(map[string]*StatusLoadBalancer, 8),
+
+		provider:     provider,
+		session:      session,
+		failHandler:  failHandler,
+		failInterval: failInterval,
 	}
 }
 
@@ -149,6 +170,9 @@ func (slbs *StatusLoadBalancerSet) GetOrNewStatusLoadBalancer(name string) *Stat
 	slb, ok := slbs.lbset[name]
 	if !ok {
 		slb = NewStatusLoadBalancer(slbs.provider)
+		slb.Session = slbs.session
+		slb.FailHandler = slbs.failHandler
+		slb.FailInterval = slbs.failInterval
 		slbs.lbset[name] = slb
 	}
 	slbs.lock.Unlock()
