@@ -16,6 +16,10 @@ package service
 
 import (
 	"context"
+	"net"
+	"net/http"
+	"strings"
+	"time"
 )
 
 // RequestSession represents a request session of the business logic.
@@ -85,6 +89,42 @@ type WeightEndpoint interface {
 
 // HealthChecker is used to check the health status of an endpoint.
 type HealthChecker func(context.Context, Endpoint) bool
+
+// CheckEndpointHealth check whether the endpoint is the healthy.
+//
+// If the endpoint is a HTTP URL, it will use the GET method to request it
+// with the http client getting from the context. Or it will treat it as
+// the address and test it by the TCP connection.
+func CheckEndpointHealth(timeout time.Duration) HealthChecker {
+	return func(ctx context.Context, endpoint Endpoint) bool {
+		addr := endpoint.String()
+		if !strings.HasPrefix(addr, "http") {
+			if conn, err := net.DialTimeout("tcp", addr, timeout); err == nil {
+				conn.Close()
+				return true
+			}
+			return false
+		}
+
+		var cancel func()
+		req, err := http.NewRequest(http.MethodGet, addr, nil)
+		if err != nil {
+			return false
+		} else if timeout > 0 {
+			ctx, cancel = context.WithTimeout(ctx, timeout)
+			defer cancel()
+		}
+
+		req = req.WithContext(ctx)
+		resp, err := GetHTTPClientFromContext(ctx).Do(req)
+		if err != nil {
+			return false
+		}
+
+		resp.Body.Close()
+		return true
+	}
+}
 
 // Middleware is a chainable behavior modifier for endpoints.
 type Middleware func(next Endpoint) Endpoint

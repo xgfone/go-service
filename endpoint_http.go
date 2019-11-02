@@ -16,9 +16,7 @@ package service
 
 import (
 	"context"
-	"net"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -41,43 +39,10 @@ func SetHTTPClientToContext(ctx context.Context, client *http.Client) context.Co
 	return context.WithValue(ctx, httpClientCtxKey, client)
 }
 
-// CheckHTTPEndpointHealth check the health status of the endpoint.
-//
-// If the endpoint is an address, it will use the detection of TCP port.
-// Or it will retry to open the url by the GET method.
-func CheckHTTPEndpointHealth(ctx context.Context, endpoint Endpoint) bool {
-	addr := endpoint.String()
-
-	client := GetHTTPClientFromContext(ctx)
-	if strings.HasPrefix(addr, "http") {
-		req, err := http.NewRequest(http.MethodGet, addr, nil)
-		if err != nil {
-			return false
-		}
-		req = req.WithContext(ctx)
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return false
-		}
-
-		resp.Body.Close()
-		return true
-	}
-
-	timeout := time.Second
-	if client != nil && client.Timeout > 0 {
-		timeout = client.Timeout
-	}
-
-	if conn, err := net.DialTimeout("tcp", addr, timeout); err == nil {
-		conn.Close()
-		return true
-	}
-	return false
-}
-
 // NewHTTPEndpoint returns a HTTP Endpoint.
+//
+// If the checker is missing, it is CheckEndpointHealth(time.Second) by default.
+// And for the health check, the http client is stored in the context.
 //
 // Notice: the request must implement
 //   interface{
@@ -90,7 +55,7 @@ func CheckHTTPEndpointHealth(ctx context.Context, endpoint Endpoint) bool {
 // it will call ToHTTPResponse to convert *http.Response to the response.
 // Or use *http.Response as the Response.
 func NewHTTPEndpoint(addr string, client *http.Client, checker ...HealthChecker) Endpoint {
-	_checker := CheckHTTPEndpointHealth
+	_checker := CheckEndpointHealth(time.Second)
 	if len(checker) > 0 && checker[0] != nil {
 		_checker = checker[0]
 	}
