@@ -38,9 +38,8 @@ type LoadBalancer struct {
 	// But it can be set to nil to disable it.
 	Session SessionManager
 
-	// FailHandler is used to handle the failure, which is FailOver(0)
-	// by default.
-	FailHandler FailHandler
+	// FailRetry is used to retry when failing, which is FailOver(0) by default.
+	FailRetry FailRetry
 
 	// FailInterval is the interval time between the retries, which is 10ms
 	// by default.
@@ -58,7 +57,7 @@ func NewLoadBalancer(provider Provider) *LoadBalancer {
 	return &LoadBalancer{
 		Provider:     provider,
 		Session:      NewMemorySessionManager(),
-		FailHandler:  FailOver(0),
+		FailRetry:    FailOver(0),
 		FailInterval: time.Millisecond * 10,
 	}
 }
@@ -147,9 +146,9 @@ func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Respon
 	err = errInit
 	for retry <= total && err != nil && endpoint != nil {
 		if resp, err = endpoint.RoundTrip(ctx, req); err != nil {
-			if lb.FailHandler == nil {
+			if lb.FailRetry == nil {
 				break
-			} else if index = lb.FailHandler(index, retry); index < 0 {
+			} else if index = lb.FailRetry(index, retry); index < 0 {
 				break
 			}
 

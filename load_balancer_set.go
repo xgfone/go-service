@@ -26,20 +26,20 @@ type LoadBalancerSet struct {
 
 	provider     Provider
 	session      SessionManager
-	failHandler  FailHandler
+	failRetry    FailRetry
 	failInterval time.Duration
 }
 
 // NewLoadBalancerSet returns a new LoadBalancerSet with the default provider,
 // sessionManager, failHandler, and failInterval.
 func NewLoadBalancerSet(provider Provider, session SessionManager,
-	failHandler FailHandler, failInterval time.Duration) *LoadBalancerSet {
+	failRetry FailRetry, failInterval time.Duration) *LoadBalancerSet {
 	return &LoadBalancerSet{
 		lbset: make(map[string]*LoadBalancer, 8),
 
 		provider:     provider,
 		session:      session,
-		failHandler:  failHandler,
+		failRetry:    failRetry,
 		failInterval: failInterval,
 	}
 }
@@ -91,7 +91,7 @@ func (lbs *LoadBalancerSet) GetOrNewLoadBalancer(name string) *LoadBalancer {
 	if !ok {
 		lb = NewLoadBalancer(lbs.provider)
 		lb.Session = lbs.session
-		lb.FailHandler = lbs.failHandler
+		lb.FailRetry = lbs.failRetry
 		lb.FailInterval = lbs.failInterval
 		lbs.lbset[name] = lb
 	}
@@ -106,20 +106,20 @@ type StatusLoadBalancerSet struct {
 
 	provider     Provider
 	session      SessionManager
-	failHandler  FailHandler
+	failRetry    FailRetry
 	failInterval time.Duration
 }
 
 // NewStatusLoadBalancerSet returns a new StatusLoadBalancerSet with the default
 // provider, sessionManager, failHandler, and failInterval.
 func NewStatusLoadBalancerSet(provider Provider, session SessionManager,
-	failHandler FailHandler, failInterval time.Duration) *StatusLoadBalancerSet {
+	failRetry FailRetry, failInterval time.Duration) *StatusLoadBalancerSet {
 	return &StatusLoadBalancerSet{
 		lbset: make(map[string]*StatusLoadBalancer, 8),
 
 		provider:     provider,
 		session:      session,
-		failHandler:  failHandler,
+		failRetry:    failRetry,
 		failInterval: failInterval,
 	}
 }
@@ -171,7 +171,7 @@ func (slbs *StatusLoadBalancerSet) GetOrNewStatusLoadBalancer(name string) *Stat
 	if !ok {
 		slb = NewStatusLoadBalancer(slbs.provider)
 		slb.Session = slbs.session
-		slb.FailHandler = slbs.failHandler
+		slb.FailRetry = slbs.failRetry
 		slb.FailInterval = slbs.failInterval
 		slbs.lbset[name] = slb
 	}
