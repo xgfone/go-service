@@ -149,7 +149,7 @@ func (r noopRequest) RemoteAddrString() string { return r.addr }
 
 // NewWeightEndpoint returns a WeightEndpoint with the weight and the endpoint.
 func NewWeightEndpoint(weight int, endpoint Endpoint) WeightEndpoint {
-	return weightEndpoint{Endpoint: endpoint, weight: func(Endpoint) int { return weight }}
+	return NewDynamicWeightEndpoint(func(Endpoint) int { return weight }, endpoint)
 }
 
 // NewDynamicWeightEndpoint returns a new WeightEndpoint with the endpoint and
