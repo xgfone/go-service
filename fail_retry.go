@@ -16,11 +16,11 @@ package service
 
 // FailRetry is used to calculate the index of the next endpoint to be used
 // to retry the service. If returning -1, it will terminate to retry.
-type FailRetry func(currentEndpointIndex, hasRetriedNum int) (nextEndpointIndex int)
+type FailRetry func(total, currentEndpointIndex, hasRetriedNum int) (nextEndpointIndex int)
 
 // FailFast returns a fast fail handler, which returns the error instantly
 // and no retry.
-func FailFast() FailRetry { return func(index, retry int) int { return -1 } }
+func FailFast() FailRetry { return func(total, index, retry int) int { return -1 } }
 
 // FailTry returns a fail handler, which will retry the same endpoint
 // until the maximum retry number.
@@ -32,7 +32,7 @@ func FailTry(maxnum int) FailRetry {
 		panic("the retry maximum number must not be a negative integer")
 	}
 
-	return func(index, retry int) int {
+	return func(total, index, retry int) int {
 		if maxnum > 0 && retry > maxnum {
 			return -1
 		}
@@ -49,7 +49,7 @@ func FailOver(maxnum int) FailRetry {
 		panic("the retry maximum number must not be a negative integer")
 	}
 
-	return func(index, retry int) int {
+	return func(total, index, retry int) int {
 		if maxnum > 0 && retry > maxnum {
 			return -1
 		}
