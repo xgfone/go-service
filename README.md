@@ -2,6 +2,16 @@
 
 A service library, such as LoadBalancer.
 
+- 1 [Installation](#1-installation)
+- 2 [Example](#2-example)
+    - 2.1 [`Client` Mode](#21-client-mode)
+       - 2.1.1 [For HTTP Client](#211-for-http-client)
+       - 2.1.2 [For TCP Client](#212-for-tcp-client)
+    - 2.2 [`Proxy` Mode](#22-proxy-mode)
+       - 2.2.1 [For HTTP Proxy](#221-for-http-Proxy)
+       - 2.2.2 [For TCP Proxy](#222-for-tcp-Proxy)
+
+
 ## 1. Installation
 ```shell
 $ go get -u github.com/xgfone/go-service
