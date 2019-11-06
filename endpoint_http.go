@@ -41,8 +41,9 @@ func SetHTTPClientToContext(ctx context.Context, client *http.Client) context.Co
 
 // NewHTTPEndpoint returns a HTTP Endpoint.
 //
-// If the checker is missing, it is CheckEndpointHealth(time.Second) by default.
-// And for the health check, the http client is stored in the context.
+// If the checker is missing, it is CheckEndpointHealth(time.Second, 0, 0)
+// by default. And for the health check, the http client is stored
+// in the context.
 //
 // Notice: the request must implement
 //   interface{
@@ -55,7 +56,7 @@ func SetHTTPClientToContext(ctx context.Context, client *http.Client) context.Co
 // it will call ToHTTPResponse to convert *http.Response to the response.
 // Or use *http.Response as the Response.
 func NewHTTPEndpoint(addr string, client *http.Client, checker ...HealthChecker) Endpoint {
-	_checker := CheckEndpointHealth(time.Second)
+	_checker := CheckEndpointHealth(time.Second, 0, 0)
 	if len(checker) > 0 && checker[0] != nil {
 		_checker = checker[0]
 	}

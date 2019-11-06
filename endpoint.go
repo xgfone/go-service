@@ -95,34 +95,45 @@ type HealthChecker func(context.Context, Endpoint) bool
 // If the endpoint is a HTTP URL, it will use the GET method to request it
 // with the http client getting from the context. Or it will treat it as
 // the address and test it by the TCP connection.
-func CheckEndpointHealth(timeout time.Duration) HealthChecker {
+//
+// If failing to check the endpoint and retryNum is greater than 0, it will
+// retry it, and if retryInterval is equal to 0, it will retry it immediately,
+// not wait for the interval duration.
+func CheckEndpointHealth(timeout, retryInterval time.Duration, retryNum int) HealthChecker {
 	return func(ctx context.Context, endpoint Endpoint) bool {
 		addr := endpoint.String()
 		if !strings.HasPrefix(addr, "http") {
-			if conn, err := net.DialTimeout("tcp", addr, timeout); err == nil {
-				conn.Close()
-				return true
+			v, _ := Retry(ctx, retryNum, retryInterval, func(context.Context) (interface{}, error) {
+				conn, err := net.DialTimeout("tcp", addr, timeout)
+				if err == nil {
+					conn.Close()
+					return true, nil
+				}
+				return false, err
+			})
+			return v.(bool)
+		}
+
+		v, _ := Retry(ctx, retryNum, retryInterval, func(context.Context) (interface{}, error) {
+			var cancel func()
+			req, err := http.NewRequest(http.MethodGet, addr, nil)
+			if err != nil {
+				return false, err
+			} else if timeout > 0 {
+				ctx, cancel = context.WithTimeout(ctx, timeout)
+				defer cancel()
 			}
-			return false
-		}
 
-		var cancel func()
-		req, err := http.NewRequest(http.MethodGet, addr, nil)
-		if err != nil {
-			return false
-		} else if timeout > 0 {
-			ctx, cancel = context.WithTimeout(ctx, timeout)
-			defer cancel()
-		}
+			req = req.WithContext(ctx)
+			resp, err := GetHTTPClientFromContext(ctx).Do(req)
+			if err != nil {
+				return false, err
+			}
 
-		req = req.WithContext(ctx)
-		resp, err := GetHTTPClientFromContext(ctx).Do(req)
-		if err != nil {
-			return false
-		}
-
-		resp.Body.Close()
-		return true
+			resp.Body.Close()
+			return true, nil
+		})
+		return v.(bool)
 	}
 }
 
