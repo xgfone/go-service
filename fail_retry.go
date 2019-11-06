@@ -14,6 +14,11 @@
 
 package service
 
+import (
+	"context"
+	"time"
+)
+
 // FailRetry is used to calculate the index of the next endpoint to be used
 // to retry the service. If returning -1, it will terminate to retry.
 type FailRetry func(total, currentEndpointIndex, hasRetriedNum int) (nextEndpointIndex int)
@@ -55,4 +60,34 @@ func FailOver(maxnum int) FailRetry {
 		}
 		return index + 1
 	}
+}
+
+// Retry calls the callee function, which will retry it with the interval time
+// for the number times when returning an error.
+//
+// If number is equal to 0, it won't retry it. And if interval is equal to 0,
+// it will retry it immediately.
+func Retry(ctx context.Context, number int, interval time.Duration,
+	callee func(context.Context) (interface{}, error)) (result interface{}, err error) {
+	if number < 0 {
+		panic("the retry number must not be negative")
+	}
+
+	for number >= 0 {
+		number--
+
+		if result, err = callee(ctx); err != nil {
+			if interval > 0 {
+				timer := time.NewTimer(interval)
+				select {
+				case <-timer.C:
+				case <-ctx.Done():
+					timer.Stop()
+					break
+				}
+			}
+		}
+	}
+
+	return
 }
