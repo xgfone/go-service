@@ -27,22 +27,34 @@ type FailRetry func(total, currentEndpointIndex, hasRetriedNum int) (nextEndpoin
 // and no retry.
 func FailFast() FailRetry { return func(total, index, retry int) int { return -1 } }
 
+func failRetryWithNext(maxnum int, next bool) FailRetry {
+	if maxnum < 0 {
+		panic("the retry maximum number must not be a negative integer")
+	}
+
+	return func(total, index, retry int) int {
+		if maxnum == 0 {
+			if retry >= total {
+				return -1
+			}
+		} else if retry >= maxnum {
+			return -1
+		}
+
+		if next {
+			return index + 1
+		}
+		return index
+	}
+}
+
 // FailTry returns a fail handler, which will retry the same endpoint
 // until the maximum retry number.
 //
 // If maxnum is equal to 0, it will retry the same endpoint for the number
 // of the endpoints.
 func FailTry(maxnum int) FailRetry {
-	if maxnum < 0 {
-		panic("the retry maximum number must not be a negative integer")
-	}
-
-	return func(total, index, retry int) int {
-		if maxnum > 0 && retry > maxnum {
-			return -1
-		}
-		return index
-	}
+	return failRetryWithNext(maxnum, false)
 }
 
 // FailOver returns a fail handler, which will retry the other endpoints
@@ -50,16 +62,7 @@ func FailTry(maxnum int) FailRetry {
 //
 // If maxnum is equal to 0, it will retry until all endpoints are retryied.
 func FailOver(maxnum int) FailRetry {
-	if maxnum < 0 {
-		panic("the retry maximum number must not be a negative integer")
-	}
-
-	return func(total, index, retry int) int {
-		if maxnum > 0 && retry > maxnum {
-			return -1
-		}
-		return index + 1
-	}
+	return failRetryWithNext(maxnum, true)
 }
 
 // Retry calls the callee function, which will retry it with the interval time

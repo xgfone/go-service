@@ -144,7 +144,7 @@ func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Respon
 
 	var retry int
 	err = errInit
-	for retry <= total && err != nil && endpoint != nil {
+	for err != nil && endpoint != nil {
 		if resp, err = endpoint.RoundTrip(ctx, req); err != nil {
 			if lb.FailRetry == nil {
 				break
