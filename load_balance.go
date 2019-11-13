@@ -41,9 +41,9 @@ type LoadBalancer struct {
 	// FailRetry is used to retry when failing, which is FailOver(0) by default.
 	FailRetry FailRetry
 
-	// FailInterval is the interval time between the retries, which is 10ms
-	// by default.
-	FailInterval time.Duration
+	// RetryDelay is used to get the interval time between the retries,
+	// which is NewFixedDelay(10ms) by default.
+	RetryDelay Delay
 }
 
 // NewLoadBalancer returns a new LoadBalancer.
@@ -55,10 +55,10 @@ func NewLoadBalancer(provider Provider) *LoadBalancer {
 		provider = NewGeneralProvider(RoundRobinSelector())
 	}
 	return &LoadBalancer{
-		Provider:     provider,
-		Session:      NewMemorySessionManager(),
-		FailRetry:    FailOver(0),
-		FailInterval: time.Millisecond * 10,
+		Provider:   provider,
+		Session:    NewMemorySessionManager(),
+		FailRetry:  FailOver(0),
+		RetryDelay: NewFixedDelay(time.Millisecond * 10),
 	}
 }
 
@@ -158,13 +158,14 @@ func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Respon
 			default:
 			}
 
-			if lb.FailInterval > 0 {
-				time.Sleep(lb.FailInterval)
-
-				select {
-				case <-ctx.Done():
-					break
-				default:
+			if lb.RetryDelay != nil {
+				if interval := lb.RetryDelay(); interval > 0 {
+					time.Sleep(interval)
+					select {
+					case <-ctx.Done():
+						break
+					default:
+					}
 				}
 			}
 

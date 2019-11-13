@@ -16,7 +16,6 @@ package service
 
 import (
 	"sync"
-	"time"
 )
 
 // LoadBalancerSet is a set of LoadBalancers.
@@ -24,23 +23,23 @@ type LoadBalancerSet struct {
 	lock  sync.RWMutex
 	lbset map[string]*LoadBalancer
 
-	provider     Provider
-	session      SessionManager
-	failRetry    FailRetry
-	failInterval time.Duration
+	provider   Provider
+	session    SessionManager
+	failRetry  FailRetry
+	retryDelay Delay
 }
 
 // NewLoadBalancerSet returns a new LoadBalancerSet with the default provider,
-// sessionManager, failHandler, and failInterval.
+// sessionManager, failHandler, and retryDelay.
 func NewLoadBalancerSet(provider Provider, session SessionManager,
-	failRetry FailRetry, failInterval time.Duration) *LoadBalancerSet {
+	failRetry FailRetry, retryDelay Delay) *LoadBalancerSet {
 	return &LoadBalancerSet{
 		lbset: make(map[string]*LoadBalancer, 8),
 
-		provider:     provider,
-		session:      session,
-		failRetry:    failRetry,
-		failInterval: failInterval,
+		provider:   provider,
+		session:    session,
+		failRetry:  failRetry,
+		retryDelay: retryDelay,
 	}
 }
 
@@ -92,7 +91,7 @@ func (lbs *LoadBalancerSet) GetOrNewLoadBalancer(name string) *LoadBalancer {
 		lb = NewLoadBalancer(lbs.provider)
 		lb.Session = lbs.session
 		lb.FailRetry = lbs.failRetry
-		lb.FailInterval = lbs.failInterval
+		lb.RetryDelay = lbs.retryDelay
 		lbs.lbset[name] = lb
 	}
 	lbs.lock.Unlock()
@@ -104,23 +103,23 @@ type StatusLoadBalancerSet struct {
 	lock  sync.RWMutex
 	lbset map[string]*StatusLoadBalancer
 
-	provider     Provider
-	session      SessionManager
-	failRetry    FailRetry
-	failInterval time.Duration
+	provider   Provider
+	session    SessionManager
+	failRetry  FailRetry
+	retryDelay Delay
 }
 
 // NewStatusLoadBalancerSet returns a new StatusLoadBalancerSet with the default
-// provider, sessionManager, failHandler, and failInterval.
+// provider, sessionManager, failHandler, and retryDelay.
 func NewStatusLoadBalancerSet(provider Provider, session SessionManager,
-	failRetry FailRetry, failInterval time.Duration) *StatusLoadBalancerSet {
+	failRetry FailRetry, retryDelay Delay) *StatusLoadBalancerSet {
 	return &StatusLoadBalancerSet{
 		lbset: make(map[string]*StatusLoadBalancer, 8),
 
-		provider:     provider,
-		session:      session,
-		failRetry:    failRetry,
-		failInterval: failInterval,
+		provider:   provider,
+		session:    session,
+		failRetry:  failRetry,
+		retryDelay: retryDelay,
 	}
 }
 
@@ -172,7 +171,7 @@ func (slbs *StatusLoadBalancerSet) GetOrNewStatusLoadBalancer(name string) *Stat
 		slb = NewStatusLoadBalancer(slbs.provider)
 		slb.Session = slbs.session
 		slb.FailRetry = slbs.failRetry
-		slb.FailInterval = slbs.failInterval
+		slb.RetryDelay = slbs.retryDelay
 		slbs.lbset[name] = slb
 	}
 	slbs.lock.Unlock()
