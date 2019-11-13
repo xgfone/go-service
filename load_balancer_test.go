@@ -15,7 +15,10 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -52,5 +55,56 @@ func TestLoadBalancer_AddEndpoints(t *testing.T) {
 		t.Error(eps[2].String())
 	} else if eps[3].String() != "4.4.4.4:80" {
 		t.Error(eps[3].String())
+	}
+}
+
+type failEndpoint struct {
+	Addr string
+	Buf  *bytes.Buffer
+}
+
+var errFailed = fmt.Errorf("error")
+
+func newFailEndpoint(addr string, buf *bytes.Buffer) Endpoint { return failEndpoint{addr, buf} }
+func (e failEndpoint) String() string                         { return e.Addr }
+func (e failEndpoint) IsHealthy(context.Context) bool         { return true }
+func (e failEndpoint) RoundTrip(context.Context, Request) (Response, error) {
+	fmt.Fprintln(e.Buf, e.Addr)
+	return nil, errFailed
+}
+
+type failRequest string
+
+func (r failRequest) RemoteAddrString() string { return string(r) }
+
+func TestLoadBalancer(t *testing.T) {
+	buf := bytes.NewBufferString("\n")
+	lb := NewLoadBalancer(nil)
+	lb.EndpointManager().AddEndpoint(newFailEndpoint("1.1.1.1:80", buf))
+	lb.EndpointManager().AddEndpoint(newFailEndpoint("2.2.2.2:80", buf))
+	lb.EndpointManager().AddEndpoint(newFailEndpoint("3.3.3.3:80", buf))
+	_, err := lb.RoundTrip(context.Background(), failRequest("1"))
+	buf.WriteString(err.Error())
+
+	var lines []string
+	_lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	for _, line := range _lines {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+
+	if len(lines) != 5 {
+		t.Error(len(lines))
+	} else if lines[0] != "2.2.2.2:80" {
+		t.Error(0, lines[0])
+	} else if lines[1] != "3.3.3.3:80" {
+		t.Error(1, lines[1])
+	} else if lines[2] != "1.1.1.1:80" {
+		t.Error(2, lines[2])
+	} else if lines[3] != "2.2.2.2:80" {
+		t.Error(3, lines[3])
+	} else if lines[4] != "error" {
+		t.Error(4, lines[4])
 	}
 }
