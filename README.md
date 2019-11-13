@@ -98,6 +98,64 @@ func main() {
 }
 ```
 
+Or, you can use it implicitly. For example,
+```go
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/xgfone/go-service"
+)
+
+func init() {
+	timeout := time.Second
+	interval := time.Second * 5
+	lb := service.NewStatusLoadBalancer(nil)
+	lb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.1:80", nil), interval, timeout)
+	lb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.2:80", nil), interval, timeout)
+	lb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.3:80", nil), interval, timeout)
+
+	getrt := service.NewGetRoundTripperFromMap(map[string]service.RoundTripper{"127.0.0.1:80": lb})
+	// For the single RoundTripper, you can also use NewSingleGetRoundTripper.
+	// getrt := service.NewSingleGetRoundTripper("127.0.0.1:80", lb)
+	http.DefaultClient.Transport = service.ToHTTPRoundTripper(getrt)
+}
+
+func printResponse(resp *http.Response, err error) {
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Printf("URL: %s\n", resp.Request.URL.String())
+
+	buf := bytes.NewBuffer(nil)
+	io.CopyN(buf, resp.Body, resp.ContentLength)
+	resp.Body.Close()
+
+	fmt.Println("StatusCode:", resp.StatusCode)
+	fmt.Println("Body:", buf.String())
+}
+
+func main() {
+	// Wait to check the health status of all end endpoints.
+	time.Sleep(time.Second)
+
+	// 127.0.0.1:80 will be replaced with one of 192.168.1.1:80, 192.168.1.2:80, 192.168.1.3:80.
+	resp, err := http.Get("http://127.0.0.1:80")
+	printResponse(resp, err)
+
+	// 127.0.0.1:8000 won't be replaced, and it will send the request to 127.0.0.1:8000 directly.
+	resp, err = http.Get("http://127.0.0.1:8000")
+	printResponse(resp, err)
+}
+```
+
 #### 2.1.2 For TCP Client
 ```go
 package main

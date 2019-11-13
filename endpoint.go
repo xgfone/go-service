@@ -114,18 +114,18 @@ func CheckEndpointHealth(timeout, retryInterval time.Duration, retryNum int) Hea
 			return v.(bool)
 		}
 
-		v, _ := Retry(ctx, retryNum, retryInterval, func(context.Context) (interface{}, error) {
+		v, _ := Retry(ctx, retryNum, retryInterval, func(c context.Context) (interface{}, error) {
 			var cancel func()
 			req, err := http.NewRequest(http.MethodGet, addr, nil)
 			if err != nil {
 				return false, err
 			} else if timeout > 0 {
-				ctx, cancel = context.WithTimeout(ctx, timeout)
+				c, cancel = context.WithTimeout(c, timeout)
 				defer cancel()
 			}
 
-			req = req.WithContext(ctx)
-			resp, err := GetHTTPClientFromContext(ctx).Do(req)
+			req = req.WithContext(c)
+			resp, err := GetHTTPClientFromContext(c).Do(req)
 			if err != nil {
 				return false, err
 			}

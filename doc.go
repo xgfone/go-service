@@ -12,6 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package service supplies a set of services, such as LoadBalancer
-// and HealthCheck.
+// Package service supplies a set of services, such as LoadBalancer,
+// HealthCheck or Retry.
 package service

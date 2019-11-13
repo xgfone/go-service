@@ -288,3 +288,26 @@ func (p *GeneralProvider) OnSelect(f func(Endpoint)) {
 func (p *GeneralProvider) OnFinish(f func(Endpoint)) {
 	p.onFinishs.Append(f)
 }
+
+// GetProvider is used to get the corresponding provider by the key.
+//
+// If no the corresponding provider, it should return nil.
+type GetProvider func(key string) Provider
+
+// NewGetProviderFromMap returns a new GetProvider, which returns the provider from a map.
+func NewGetProviderFromMap(ms map[string]Provider) GetProvider {
+	return func(key string) Provider {
+		return ms[key]
+	}
+}
+
+// NewSingleGetProvider returns a new GetProvider, which compares
+// the key with the request key and returns the provider if they are equal.
+func NewSingleGetProvider(key string, provider Provider) GetProvider {
+	return func(rkey string) Provider {
+		if rkey == key {
+			return provider
+		}
+		return nil
+	}
+}
