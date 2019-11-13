@@ -20,8 +20,6 @@ import (
 	"time"
 )
 
-var errInit = errors.New("init")
-
 // Predefine some errors.
 var (
 	ErrNoAvailableEndpoint = errors.New("no available endpoints")
@@ -143,40 +141,39 @@ func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Respon
 	defer lb.Finish(endpoint)
 
 	var retry int
-	err = errInit
-	for err != nil && endpoint != nil {
-		if resp, err = endpoint.RoundTrip(ctx, req); err != nil {
-			if lb.FailRetry == nil {
-				break
-			} else if index = lb.FailRetry(total, index, retry); index < 0 {
-				break
-			}
+	var interval time.Duration
+	for endpoint != nil {
+		if resp, err = endpoint.RoundTrip(ctx, req); err == nil {
+			return
+		}
 
-			select {
-			case <-ctx.Done():
-				break
-			default:
-			}
+		if lb.FailRetry == nil {
+			break
+		} else if index = lb.FailRetry(total, index, retry); index < 0 {
+			break
+		}
 
-			if lb.RetryDelay != nil {
-				if interval := lb.RetryDelay(); interval > 0 {
-					time.Sleep(interval)
-					select {
-					case <-ctx.Done():
-						break
-					default:
-					}
+		select {
+		case <-ctx.Done():
+			break
+		default:
+		}
+
+		retry++
+		if lb.RetryDelay != nil {
+			if interval = lb.RetryDelay(retry, interval); interval > 0 {
+				time.Sleep(interval)
+				select {
+				case <-ctx.Done():
+					break
+				default:
 				}
 			}
-
-			index, endpoint = lb.getEndpointByIndex(raddr, index)
-			retry++
 		}
+
+		index, endpoint = lb.getEndpointByIndex(raddr, index)
 	}
 
-	if err != nil {
-		lb.deleteEndpointFromSession(raddr)
-	}
-
+	lb.deleteEndpointFromSession(raddr)
 	return
 }

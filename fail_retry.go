@@ -21,7 +21,7 @@ import (
 
 // FailRetry is used to calculate the index of the next endpoint to be used
 // to retry the service. If returning -1, it will terminate to retry.
-type FailRetry func(total, currentEndpointIndex, hasRetriedNum int) (nextEndpointIndex int)
+type FailRetry func(totalEndpointIndex, currentEndpointIndex, hasRetriedNum int) (nextEndpointIndex int)
 
 // FailFast returns a fast fail handler, which returns the error instantly
 // and no retry.

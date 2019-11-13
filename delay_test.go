@@ -23,8 +23,8 @@ func ExampleNewMultipleDelay() {
 	delay := NewMultipleDelay(time.Second, time.Minute)
 
 	var last time.Duration
-	for {
-		if next := delay(); next == last {
+	for i := 1; i < 100; i++ {
+		if next := delay(i, last); next == last {
 			break
 		} else {
 			last = next

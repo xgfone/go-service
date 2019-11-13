@@ -16,12 +16,14 @@ package service
 
 import "time"
 
-// Delay is used to get the next delay duration.
-type Delay func() time.Duration
+// Delay is used to get the Nth delay duration.
+//
+// retryNumber starts with 1, and lastDelay starts with 0.
+type Delay func(retryNumber int, lastDelay time.Duration) (nextDelay time.Duration)
 
 // NewFixedDelay returns a Delay that always returns the same delay duration.
 func NewFixedDelay(delay time.Duration) Delay {
-	return func() time.Duration { return delay }
+	return func(int, time.Duration) time.Duration { return delay }
 }
 
 // NewMultipleDelay returns a delay that will increase the
@@ -32,15 +34,16 @@ func NewMultipleDelay(start, end time.Duration) Delay {
 		panic("MultipleDelay: the start must not be greater than the end")
 	}
 
-	next := start
-	return func() (n time.Duration) {
-		n = next
-		if next < end {
-			next += next
-			if next > end {
-				next = end
-			}
+	return func(num int, last time.Duration) time.Duration {
+		if num == 1 {
+			return start
+		} else if last == end {
+			return end
 		}
-		return
+
+		if next := last * 2; next < end {
+			return next
+		}
+		return end
 	}
 }

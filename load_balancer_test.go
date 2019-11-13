@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 type noopEndpoint string
@@ -77,9 +78,20 @@ type failRequest string
 
 func (r failRequest) RemoteAddrString() string { return string(r) }
 
+type logDelay struct {
+	buf   *bytes.Buffer
+	delay time.Duration
+}
+
+func (d logDelay) NextDelay(num int, last time.Duration) (next time.Duration) {
+	fmt.Fprintf(d.buf, "delay %d\n", num)
+	return d.delay
+}
+
 func TestLoadBalancer(t *testing.T) {
 	buf := bytes.NewBufferString("\n")
 	lb := NewLoadBalancer(nil)
+	lb.RetryDelay = logDelay{buf, time.Millisecond * 10}.NextDelay
 	lb.EndpointManager().AddEndpoint(newFailEndpoint("1.1.1.1:80", buf))
 	lb.EndpointManager().AddEndpoint(newFailEndpoint("2.2.2.2:80", buf))
 	lb.EndpointManager().AddEndpoint(newFailEndpoint("3.3.3.3:80", buf))
@@ -94,17 +106,23 @@ func TestLoadBalancer(t *testing.T) {
 		}
 	}
 
-	if len(lines) != 5 {
-		t.Error(len(lines))
-	} else if lines[0] != "2.2.2.2:80" {
-		t.Error(0, lines[0])
-	} else if lines[1] != "3.3.3.3:80" {
-		t.Error(1, lines[1])
-	} else if lines[2] != "1.1.1.1:80" {
-		t.Error(2, lines[2])
-	} else if lines[3] != "2.2.2.2:80" {
-		t.Error(3, lines[3])
-	} else if lines[4] != "error" {
-		t.Error(4, lines[4])
+	expectLines := []string{
+		"2.2.2.2:80",
+		"delay 1",
+		"3.3.3.3:80",
+		"delay 2",
+		"1.1.1.1:80",
+		"delay 3",
+		"2.2.2.2:80",
+		"error",
+	}
+
+	if len(lines) != len(expectLines) {
+		t.Errorf("line: expect '%d', got '%d'", len(expectLines), len(lines))
+	}
+	for i := 0; i < len(lines); i++ {
+		if lines[i] != expectLines[i] {
+			t.Errorf("line '%d': expect '%s', got '%s'", i, expectLines[i], lines[i])
+		}
 	}
 }
