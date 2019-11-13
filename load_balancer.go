@@ -41,7 +41,7 @@ type LoadBalancer struct {
 
 	// RetryDelay is used to get the interval time between the retries,
 	// which is NewFixedDelay(10ms) by default.
-	RetryDelay Delay
+	RetryDelay RetryDelay
 }
 
 // NewLoadBalancer returns a new LoadBalancer.
@@ -56,7 +56,7 @@ func NewLoadBalancer(provider Provider) *LoadBalancer {
 		Provider:   provider,
 		Session:    NewMemorySessionManager(),
 		FailRetry:  FailOver(0),
-		RetryDelay: NewFixedDelay(time.Millisecond * 10),
+		RetryDelay: NewFixedRetryDelay(time.Millisecond * 10),
 	}
 }
 

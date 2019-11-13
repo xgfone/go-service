@@ -78,12 +78,12 @@ type failRequest string
 
 func (r failRequest) RemoteAddrString() string { return string(r) }
 
-type logDelay struct {
+type logRetryDelay struct {
 	buf   *bytes.Buffer
 	delay time.Duration
 }
 
-func (d logDelay) NextDelay(num int, last time.Duration) (next time.Duration) {
+func (d logRetryDelay) NextDelay(num int, last time.Duration) (next time.Duration) {
 	fmt.Fprintf(d.buf, "delay %d\n", num)
 	return d.delay
 }
@@ -91,7 +91,7 @@ func (d logDelay) NextDelay(num int, last time.Duration) (next time.Duration) {
 func TestLoadBalancer(t *testing.T) {
 	buf := bytes.NewBufferString("\n")
 	lb := NewLoadBalancer(nil)
-	lb.RetryDelay = logDelay{buf, time.Millisecond * 10}.NextDelay
+	lb.RetryDelay = logRetryDelay{buf, time.Millisecond * 10}.NextDelay
 	lb.EndpointManager().AddEndpoint(newFailEndpoint("1.1.1.1:80", buf))
 	lb.EndpointManager().AddEndpoint(newFailEndpoint("2.2.2.2:80", buf))
 	lb.EndpointManager().AddEndpoint(newFailEndpoint("3.3.3.3:80", buf))

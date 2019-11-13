@@ -19,8 +19,8 @@ import (
 	"time"
 )
 
-func ExampleNewMultipleDelay() {
-	delay := NewMultipleDelay(time.Second, time.Minute)
+func ExampleNewMultipleRetryDelay() {
+	delay := NewMultipleRetryDelay(time.Second, time.Minute)
 
 	var last time.Duration
 	for i := 1; i < 100; i++ {

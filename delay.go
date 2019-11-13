@@ -16,18 +16,18 @@ package service
 
 import "time"
 
-// Delay is used to get the Nth delay duration.
+// RetryDelay is used to get the Nth delay duration to retry.
 //
 // retryNumber starts with 1, and lastDelay starts with 0.
-type Delay func(retryNumber int, lastDelay time.Duration) (nextDelay time.Duration)
+type RetryDelay func(retryNumber int, lastDelay time.Duration) (nextDelay time.Duration)
 
-// NewFixedDelay returns a Delay that always returns the same delay duration.
-func NewFixedDelay(delay time.Duration) Delay {
+// NewFixedRetryDelay returns a Delay that always returns the same delay duration.
+func NewFixedRetryDelay(delay time.Duration) RetryDelay {
 	return func(int, time.Duration) time.Duration { return delay }
 }
 
-// NewMultipleDelay returns a delay that will increase the
-func NewMultipleDelay(start, end time.Duration) Delay {
+// NewMultipleRetryDelay returns a delay that will increase the
+func NewMultipleRetryDelay(start, end time.Duration) RetryDelay {
 	if start < 1 || end < 1 {
 		panic("MultipleDelay: the start or end duration must be an positive integer")
 	} else if start > end {

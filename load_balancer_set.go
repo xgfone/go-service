@@ -26,13 +26,13 @@ type LoadBalancerSet struct {
 	provider   Provider
 	session    SessionManager
 	failRetry  FailRetry
-	retryDelay Delay
+	retryDelay RetryDelay
 }
 
 // NewLoadBalancerSet returns a new LoadBalancerSet with the default provider,
 // sessionManager, failHandler, and retryDelay.
 func NewLoadBalancerSet(provider Provider, session SessionManager,
-	failRetry FailRetry, retryDelay Delay) *LoadBalancerSet {
+	failRetry FailRetry, retryDelay RetryDelay) *LoadBalancerSet {
 	return &LoadBalancerSet{
 		lbset: make(map[string]*LoadBalancer, 8),
 
@@ -106,13 +106,13 @@ type StatusLoadBalancerSet struct {
 	provider   Provider
 	session    SessionManager
 	failRetry  FailRetry
-	retryDelay Delay
+	retryDelay RetryDelay
 }
 
 // NewStatusLoadBalancerSet returns a new StatusLoadBalancerSet with the default
 // provider, sessionManager, failHandler, and retryDelay.
 func NewStatusLoadBalancerSet(provider Provider, session SessionManager,
-	failRetry FailRetry, retryDelay Delay) *StatusLoadBalancerSet {
+	failRetry FailRetry, retryDelay RetryDelay) *StatusLoadBalancerSet {
 	return &StatusLoadBalancerSet{
 		lbset: make(map[string]*StatusLoadBalancer, 8),
 

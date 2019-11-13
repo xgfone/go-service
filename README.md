@@ -1,6 +1,6 @@
 # go-service [![Build Status](https://travis-ci.org/xgfone/go-service.svg?branch=master)](https://travis-ci.org/xgfone/go-service) [![GoDoc](https://godoc.org/github.com/xgfone/go-service?status.svg)](http://godoc.org/github.com/xgfone/go-service) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](https://raw.githubusercontent.com/xgfone/go-service/master/LICENSE)
 
-A service library, such as LoadBalancer, HealthCheck or Retry.
+A service library, such as LoadBalancer, HealthCheck or Retry, support `Go1.9+`.
 
 - 1 [Installation](#1-installation)
 - 2 [Example](#2-example)
