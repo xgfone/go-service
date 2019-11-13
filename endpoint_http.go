@@ -49,6 +49,10 @@ func SetHTTPClientToContext(ctx context.Context, client *http.Client) context.Co
 // by default. And for the health check, the http client is stored
 // in the context.
 //
+// The HTTP endpoint has implemented the interface { URL() *url.URL },
+// and if addr is a URL, it will be parsed earlier and returned by URL().
+// Or, URL() returns nil.
+//
 // Notice: the request must implement
 //   interface{
 //       ToHTTPRequest(context.Context, Endpoint) (*http.Request, error)
