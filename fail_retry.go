@@ -88,6 +88,11 @@ func Retry(ctx context.Context, number int, interval time.Duration,
 					timer.Stop()
 					break
 				}
+			} else {
+				select {
+				case <-ctx.Done():
+					break
+				}
 			}
 		}
 	}
