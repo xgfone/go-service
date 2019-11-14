@@ -92,6 +92,7 @@ func Retry(ctx context.Context, number int, interval time.Duration,
 				select {
 				case <-ctx.Done():
 					break
+				default:
 				}
 			}
 		}
