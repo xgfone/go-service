@@ -71,31 +71,34 @@ func FailOver(maxnum int) FailRetry {
 // If number is equal to 0, it won't retry it. And if interval is equal to 0,
 // it will retry it immediately.
 func Retry(ctx context.Context, number int, interval time.Duration,
-	callee func(context.Context) (interface{}, error)) (result interface{}, err error) {
+	callee func(context.Context) (result interface{}, err error)) (
+	result interface{}, err error) {
+
 	if number < 0 {
 		panic("the retry number must not be negative")
 	}
 
-	for number >= 0 {
+	result, err = callee(ctx)
+	for err != nil && number > 0 {
 		number--
 
-		if result, err = callee(ctx); err != nil {
-			if interval > 0 {
-				timer := time.NewTimer(interval)
-				select {
-				case <-timer.C:
-				case <-ctx.Done():
-					timer.Stop()
-					break
-				}
-			} else {
-				select {
-				case <-ctx.Done():
-					break
-				default:
-				}
+		if interval > 0 {
+			timer := time.NewTimer(interval)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+				break
+			}
+		} else {
+			select {
+			case <-ctx.Done():
+				break
+			default:
 			}
 		}
+
+		result, err = callee(ctx)
 	}
 
 	return
