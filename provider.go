@@ -65,6 +65,12 @@ type ProviderEndpointEvent interface {
 	OnFinish(func(Endpoint))
 }
 
+// ProviderSelector is used to manage the selector by the provider.
+type ProviderSelector interface {
+	GetSelector() Selector
+	SetSelector(Selector)
+}
+
 type endpoints []Endpoint
 
 func (es endpoints) Len() int      { return len(es) }
@@ -78,7 +84,12 @@ func (es endpoints) Less(i, j int) bool {
 	return es[i].String() < es[j].String()
 }
 
-var _ Provider = &GeneralProvider{}
+var (
+	_ Provider                = &GeneralProvider{}
+	_ ProviderSelector        = &GeneralProvider{}
+	_ ProviderEndpointEvent   = &GeneralProvider{}
+	_ ProviderEndpointManager = &GeneralProvider{}
+)
 
 // GeneralProvider is a general provider of the endpoints.
 type GeneralProvider struct {
@@ -112,6 +123,14 @@ func NewGeneralProvider(selector Selector, endpoints ...Endpoint) *GeneralProvid
 
 	p.addEndpoints(endpoints...)
 	return p
+}
+
+// GetSelector returns the selector.
+func (p *GeneralProvider) GetSelector() Selector {
+	p.lock.RLock()
+	s := p.selector
+	p.lock.RUnlock()
+	return s
 }
 
 // SetSelector resets the selector to s.
