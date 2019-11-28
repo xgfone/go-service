@@ -68,6 +68,24 @@ func (hc *HealthCheck) AddUpdater(updater Updater) {
 	hc.updaters = append(hc.updaters, updater)
 }
 
+type statusEnpoind struct {
+	Endpoint
+	healthy bool
+}
+
+func (se statusEnpoind) IsHealthy(context.Context) bool { return se.healthy }
+
+// Endpoints returns the copy of all the endpoints, which cannot be cached.
+func (hc *HealthCheck) Endpoints() []Endpoint {
+	hc.lock.RLock()
+	eps := make([]Endpoint, 0, len(hc.endpoints))
+	for _, ep := range hc.endpoints {
+		eps = append(eps, statusEnpoind{Endpoint: ep.Endpoint, healthy: ep.Health})
+	}
+	hc.lock.RUnlock()
+	return eps
+}
+
 // AddEndpoint add the endpoint to check its health status.
 func (hc *HealthCheck) AddEndpoint(ep Endpoint, interval, timeout time.Duration) {
 	ew := &endpointWrapper{
@@ -151,7 +169,6 @@ func (hc *HealthCheck) checkEndpoint(ctx context.Context, ew *endpointWrapper) {
 			hc.updatech <- endpointOp{Add: false, Endpoint: ew.Endpoint}
 		}
 	}
-
 }
 
 func (hc *HealthCheck) updateEndpoint() {
@@ -190,6 +207,13 @@ func NewStatusLoadBalancer(provider Provider) *StatusLoadBalancer {
 		LoadBalancer: lb,
 		HealthCheck:  hc,
 	}
+}
+
+// Endpoints returns the copy of all the endpoints, which cannot be cached.
+//
+// If you want to cache them, please use slb.LoadBalancer.EndpointManager.Endpoints().
+func (slb *StatusLoadBalancer) Endpoints() []Endpoint {
+	return slb.HealthCheck.Endpoints()
 }
 
 // AddEndpoint is the proxy of slb.HealthCheck.AddEndpoint.
