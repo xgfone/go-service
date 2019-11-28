@@ -60,6 +60,13 @@ func NewLoadBalancer(provider Provider) *LoadBalancer {
 	}
 }
 
+// ProviderSelector returns the ProviderSelector if the provider has implemented
+// the interface ProviderSelector. Or returns nil instead.
+func (lb *LoadBalancer) ProviderSelector() ProviderSelector {
+	ps, _ := lb.Provider.(ProviderSelector)
+	return ps
+}
+
 // EndpointManager asserts the provider to ProviderEndpointManager.
 func (lb *LoadBalancer) EndpointManager() ProviderEndpointManager {
 	return lb.Provider.(ProviderEndpointManager)
