@@ -24,64 +24,54 @@ import (
 //
 // Notice: the selector should return the result as soon as possible.
 type Selector interface {
+	// String returns the name of the selector.
+	String() string
+
 	// Select returns the index of the selected endpoint from endpoints
 	// by the request.
-	Select(request Request, endpoints []Endpoint) (index int)
-}
-
-// NamedSelector is the named selector.
-type NamedSelector interface {
-	Selector
-
-	// Name returns the name of the selector.
-	Name() string
+	Select(request Request, endpoints Endpoints) (index int)
 }
 
 type selector struct {
 	name     string
-	selector func(Request, []Endpoint) int
+	selector func(Request, Endpoints) int
 }
 
-func (s selector) Name() string                         { return s.name }
-func (s selector) Select(r Request, eps []Endpoint) int { return s.selector(r, eps) }
+func (s selector) String() string                      { return s.name }
+func (s selector) Select(r Request, eps Endpoints) int { return s.selector(r, eps) }
 
-// NamedSelectorFunc returns a new NamedSelector with the name and the selector.
-func NamedSelectorFunc(name string, s func(Request, []Endpoint) int) NamedSelector {
+// SelectorFunc returns a new Selector with the name and the selector.
+func SelectorFunc(name string, s func(Request, Endpoints) int) Selector {
 	return selector{name: name, selector: s}
 }
 
-// SelectorFunc converts the functions to a Selector.
-func SelectorFunc(f func(Request, []Endpoint) (index int)) Selector {
-	return selector{selector: f}
-}
+var selectors map[string]Selector
 
-var selectors map[string]NamedSelector
-
-// RegisterSelector registers a NamedSelector.
+// RegisterSelector registers a Selector.
 //
 // If the selector has been registered, it will be overrided.
-func RegisterSelector(selector NamedSelector) {
-	selectors[selector.Name()] = selector
+func RegisterSelector(selector Selector) {
+	selectors[selector.String()] = selector
 }
 
 // GetSelector returns the Selector named name.
 //
 // Return nil if the selector does not exist.
-func GetSelector(name string) NamedSelector { return selectors[name] }
+func GetSelector(name string) Selector { return selectors[name] }
 
 // RandomSelector returns a random selector which returns a endpoint randomly,
 // whose name is "random".
 //
 // If the endpoint has implemented the inerface WeightEndpoint, it will select
 // an endpoint based on the weight.
-func RandomSelector() NamedSelector {
+func RandomSelector() Selector {
 	getWeight := func(ep Endpoint) (weight int) {
 		if we, ok := ep.(WeightEndpoint); ok {
 			weight = we.Weight()
 		}
 		return
 	}
-	return NamedSelectorFunc("random", func(req Request, endpoints []Endpoint) int {
+	return SelectorFunc("random", func(req Request, endpoints Endpoints) int {
 		var lastWeight int
 		var totalWeight int
 
@@ -110,9 +100,9 @@ func RandomSelector() NamedSelector {
 }
 
 // RoundRobinSelector returns a RoundRobin selector, whose name is "round_robin".
-func RoundRobinSelector() NamedSelector {
+func RoundRobinSelector() Selector {
 	var last uint64
-	return NamedSelectorFunc("round_robin", func(req Request, endpoints []Endpoint) int {
+	return SelectorFunc("round_robin", func(req Request, endpoints Endpoints) int {
 		last++
 		return int(last % uint64(len(endpoints)))
 	})
@@ -123,9 +113,9 @@ func RoundRobinSelector() NamedSelector {
 //
 // Notice: If failing to parse the remote address, it will degenerate to
 // the RoundRobin selector.
-func SourceIPSelector() NamedSelector {
+func SourceIPSelector() Selector {
 	rr := RoundRobinSelector()
-	return NamedSelectorFunc("source_ip", func(req Request, endpoints []Endpoint) int {
+	return SelectorFunc("source_ip", func(req Request, endpoints Endpoints) int {
 		var ip net.IP
 		if raddr, ok := req.(interface{ RemoteAddr() net.Addr }); ok {
 			switch addr := raddr.RemoteAddr().(type) {
