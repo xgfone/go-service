@@ -16,23 +16,46 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
 // FailRetry is used to calculate the index of the next endpoint to be used
-// to retry the service. If returning -1, it will terminate to retry.
-type FailRetry func(totalEndpointIndex, currentEndpointIndex, hasRetriedNum int) (nextEndpointIndex int)
+// to retry the service.
+type FailRetry interface {
+	// String returns the name of FailRetry.
+	String() string
+
+	// Next calculates the index of the next endpoint to be used to retry
+	// the service. If returning -1, it will terminate to retry.
+	Next(totalEndpointIndex, currentEndpointIndex, hasRetriedNum int) (nextEndpointIndex int)
+}
+
+type failRetry struct {
+	name string
+	next func(int, int, int) int
+}
+
+func (r failRetry) String() string                       { return r.name }
+func (r failRetry) Next(total, current, retried int) int { return r.next(total, current, retried) }
+
+// FailRetryFunc converts a function with the name to
+func FailRetryFunc(name string, next func(total, current, retried int) (next int)) FailRetry {
+	return failRetry{name: name, next: next}
+}
 
 // FailFast returns a fast fail handler, which returns the error instantly
 // and no retry.
-func FailFast() FailRetry { return func(total, index, retry int) int { return -1 } }
+func FailFast() FailRetry {
+	return FailRetryFunc("fastfail", func(total, index, retry int) int { return -1 })
+}
 
-func failRetryWithNext(maxnum int, next bool) FailRetry {
+func failRetryWithNext(name string, maxnum int, next bool) FailRetry {
 	if maxnum < 0 {
 		panic("the retry maximum number must not be a negative integer")
 	}
 
-	return func(total, index, retry int) int {
+	return FailRetryFunc(name, func(total, index, retry int) int {
 		if maxnum == 0 {
 			if retry >= total {
 				return -1
@@ -45,7 +68,7 @@ func failRetryWithNext(maxnum int, next bool) FailRetry {
 			return index + 1
 		}
 		return index
-	}
+	})
 }
 
 // FailTry returns a fail handler, which will retry the same endpoint
@@ -54,7 +77,7 @@ func failRetryWithNext(maxnum int, next bool) FailRetry {
 // If maxnum is equal to 0, it will retry the same endpoint for the number
 // of the endpoints.
 func FailTry(maxnum int) FailRetry {
-	return failRetryWithNext(maxnum, false)
+	return failRetryWithNext(fmt.Sprintf("failtry(%d)", maxnum), maxnum, false)
 }
 
 // FailOver returns a fail handler, which will retry the other endpoints
@@ -62,7 +85,7 @@ func FailTry(maxnum int) FailRetry {
 //
 // If maxnum is equal to 0, it will retry until all endpoints are retryied.
 func FailOver(maxnum int) FailRetry {
-	return failRetryWithNext(maxnum, true)
+	return failRetryWithNext(fmt.Sprintf("failover(%d)", maxnum), maxnum, true)
 }
 
 // Retry calls the callee function, which will retry it with the interval time

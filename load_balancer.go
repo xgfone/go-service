@@ -162,7 +162,7 @@ func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Respon
 
 		if lb.FailRetry == nil {
 			break
-		} else if index = lb.FailRetry(total, index, retry); index < 0 {
+		} else if index = lb.FailRetry.Next(total, index, retry); index < 0 {
 			break
 		}
 
