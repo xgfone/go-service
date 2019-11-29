@@ -50,7 +50,7 @@ type Provider interface {
 // ProviderEndpointManager is an interface to manage the endpoints.
 type ProviderEndpointManager interface {
 	// Endpoints should returns the copy of all the endpoints.
-	Endpoints() []Endpoint
+	Endpoints() Endpoints
 	AddEndpoint(Endpoint)
 	DelEndpoint(Endpoint)
 	DelEndpointByString(endpoint string)
@@ -71,19 +71,6 @@ type ProviderSelector interface {
 	SetSelector(Selector)
 }
 
-type endpoints []Endpoint
-
-func (es endpoints) Len() int      { return len(es) }
-func (es endpoints) Swap(i, j int) { es[i], es[j] = es[j], es[i] }
-func (es endpoints) Less(i, j int) bool {
-	if es[i] == nil {
-		return false
-	} else if es[j] == nil {
-		return true
-	}
-	return es[i].String() < es[j].String()
-}
-
 var (
 	_ Provider                = &GeneralProvider{}
 	_ ProviderSelector        = &GeneralProvider{}
@@ -96,7 +83,7 @@ type GeneralProvider struct {
 	lock sync.RWMutex
 
 	selector  Selector
-	endpoints []Endpoint
+	endpoints Endpoints
 	eplen     uint32
 
 	onAdds    *eventCallbacks
@@ -113,7 +100,7 @@ func NewGeneralProvider(selector Selector, endpoints ...Endpoint) *GeneralProvid
 
 	p := &GeneralProvider{
 		selector:  selector,
-		endpoints: make([]Endpoint, 0, 8),
+		endpoints: make(Endpoints, 0, 8),
 
 		onAdds:    newEventCallbacks(),
 		onDeletes: newEventCallbacks(),
@@ -144,9 +131,9 @@ func (p *GeneralProvider) SetSelector(s Selector) {
 	p.lock.Unlock()
 }
 
-func (p *GeneralProvider) addEndpoints(eps ...Endpoint) {
-	p.endpoints = append(p.endpoints, eps...)
-	sort.Sort(endpoints(p.endpoints))
+func (p *GeneralProvider) addEndpoints(endpoints ...Endpoint) {
+	p.endpoints = append(p.endpoints, endpoints...)
+	sort.Sort(Endpoints(p.endpoints))
 	p.updateLen(len(p.endpoints))
 }
 
@@ -160,9 +147,9 @@ func (p *GeneralProvider) Len() int {
 }
 
 // Endpoints returns the copy of all the endpoints.
-func (p *GeneralProvider) Endpoints() []Endpoint {
+func (p *GeneralProvider) Endpoints() Endpoints {
 	p.lock.RLock()
-	endpoints := make([]Endpoint, len(p.endpoints))
+	endpoints := make(Endpoints, len(p.endpoints))
 	copy(endpoints, p.endpoints)
 	p.lock.RUnlock()
 	return endpoints
@@ -183,7 +170,7 @@ func (p *GeneralProvider) AddEndpoint(endpoint Endpoint) {
 	}
 	if old == nil {
 		p.endpoints = append(p.endpoints, endpoint)
-		sort.Sort(endpoints(p.endpoints))
+		sort.Sort(Endpoints(p.endpoints))
 	}
 	p.updateLen(len(p.endpoints))
 	p.lock.Unlock()
@@ -217,7 +204,7 @@ func (p *GeneralProvider) DelEndpointByString(endpoint string) {
 		}
 	}
 	if exist {
-		sort.Sort(endpoints(p.endpoints))
+		sort.Sort(Endpoints(p.endpoints))
 		p.updateLen(len(p.endpoints))
 	}
 	p.lock.Unlock()

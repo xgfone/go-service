@@ -87,6 +87,20 @@ type WeightEndpoint interface {
 	Weight() int
 }
 
+// Endpoints is a set of Endpoint.
+type Endpoints []Endpoint
+
+func (es Endpoints) Len() int      { return len(es) }
+func (es Endpoints) Swap(i, j int) { es[i], es[j] = es[j], es[i] }
+func (es Endpoints) Less(i, j int) bool {
+	if es[i] == nil {
+		return false
+	} else if es[j] == nil {
+		return true
+	}
+	return es[i].String() < es[j].String()
+}
+
 // HealthChecker is used to check the health status of an endpoint.
 type HealthChecker func(context.Context, Endpoint) bool
 

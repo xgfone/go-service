@@ -76,9 +76,9 @@ type statusEnpoind struct {
 func (se statusEnpoind) IsHealthy(context.Context) bool { return se.healthy }
 
 // Endpoints returns the copy of all the endpoints, which cannot be cached.
-func (hc *HealthCheck) Endpoints() []Endpoint {
+func (hc *HealthCheck) Endpoints() Endpoints {
 	hc.lock.RLock()
-	eps := make([]Endpoint, 0, len(hc.endpoints))
+	eps := make(Endpoints, 0, len(hc.endpoints))
 	for _, ep := range hc.endpoints {
 		eps = append(eps, statusEnpoind{Endpoint: ep.Endpoint, healthy: ep.Health})
 	}
@@ -212,7 +212,7 @@ func NewStatusLoadBalancer(provider Provider) *StatusLoadBalancer {
 // Endpoints returns the copy of all the endpoints, which cannot be cached.
 //
 // If you want to cache them, please use slb.LoadBalancer.EndpointManager.Endpoints().
-func (slb *StatusLoadBalancer) Endpoints() []Endpoint {
+func (slb *StatusLoadBalancer) Endpoints() Endpoints {
 	return slb.HealthCheck.Endpoints()
 }
 
