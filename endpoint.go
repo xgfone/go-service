@@ -17,7 +17,7 @@ package service
 import (
 	"context"
 	"net"
-	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -92,9 +92,8 @@ type HealthChecker func(context.Context, Endpoint) bool
 
 // CheckEndpointHealth check whether the endpoint is the healthy.
 //
-// If the endpoint is a HTTP URL, it will use the GET method to request it
-// with the http client getting from the context. Or it will treat it as
-// the address and test it by the TCP connection.
+// If the endpoint is a HTTP URL, it will extract the Host field and test it
+// by the TCP connection.
 //
 // If failing to check the endpoint and retryNum is greater than 0, it will
 // retry it, and if retryInterval is equal to 0, it will retry it immediately,
@@ -102,37 +101,27 @@ type HealthChecker func(context.Context, Endpoint) bool
 func CheckEndpointHealth(timeout, retryInterval time.Duration, retryNum int) HealthChecker {
 	return func(ctx context.Context, endpoint Endpoint) bool {
 		addr := endpoint.String()
-		if !strings.HasPrefix(addr, "http") {
-			v, _ := Retry(ctx, retryNum, retryInterval, func(context.Context) (interface{}, error) {
-				conn, err := net.DialTimeout("tcp", addr, timeout)
-				if err == nil {
-					conn.Close()
-					return true, nil
-				}
-				return false, err
-			})
-			return v.(bool)
+		if strings.HasPrefix(addr, "http") {
+			if u, err := url.Parse(addr); err != nil {
+				return false
+			} else if _, _, err := net.SplitHostPort(u.Host); err == nil {
+				addr = u.Host
+			} else if strings.HasPrefix(addr, "https") {
+				addr = net.JoinHostPort(u.Host, "80")
+			} else {
+				addr = net.JoinHostPort(u.Host, "443")
+			}
 		}
 
-		v, _ := Retry(ctx, retryNum, retryInterval, func(c context.Context) (interface{}, error) {
-			var cancel func()
-			req, err := http.NewRequest(http.MethodGet, addr, nil)
-			if err != nil {
-				return false, err
-			} else if timeout > 0 {
-				c, cancel = context.WithTimeout(c, timeout)
-				defer cancel()
+		v, _ := Retry(ctx, retryNum, retryInterval, func(context.Context) (interface{}, error) {
+			conn, err := net.DialTimeout("tcp", addr, timeout)
+			if err == nil {
+				conn.Close()
+				return true, nil
 			}
-
-			req = req.WithContext(c)
-			resp, err := GetHTTPClientFromContext(c).Do(req)
-			if err != nil {
-				return false, err
-			}
-
-			resp.Body.Close()
-			return true, nil
+			return false, err
 		})
+
 		return v.(bool)
 	}
 }
