@@ -46,6 +46,8 @@ func FailRetryFunc(name string, next func(total, current, retried int) (next int
 
 // FailFast returns a fast fail handler, which returns the error instantly
 // and no retry.
+//
+// Notice: the name is "fastfail".
 func FailFast() FailRetry {
 	return FailRetryFunc("fastfail", func(total, index, retry int) int { return -1 })
 }
@@ -76,6 +78,8 @@ func failRetryWithNext(name string, maxnum int, next bool) FailRetry {
 //
 // If maxnum is equal to 0, it will retry the same endpoint for the number
 // of the endpoints.
+//
+// Notice: the name is "failtry(maxnum)".
 func FailTry(maxnum int) FailRetry {
 	return failRetryWithNext(fmt.Sprintf("failtry(%d)", maxnum), maxnum, false)
 }
@@ -84,6 +88,8 @@ func FailTry(maxnum int) FailRetry {
 // until the maximum retry number.
 //
 // If maxnum is equal to 0, it will retry until all endpoints are retryied.
+//
+// Notice: the name is "failover(maxnum)".
 func FailOver(maxnum int) FailRetry {
 	return failRetryWithNext(fmt.Sprintf("failover(%d)", maxnum), maxnum, true)
 }
