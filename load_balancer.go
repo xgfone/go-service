@@ -122,8 +122,6 @@ func (lb *LoadBalancer) selectEndpoint(req Request, raddr string) (
 	if endpoint == nil {
 		index, endpoint = lb.Provider.Select(req)
 		lb.setEndpointToSession(raddr, endpoint)
-	} else {
-		lb.Provider.Hit(endpoint)
 	}
 
 	return
@@ -139,8 +137,6 @@ func (lb *LoadBalancer) getEndpointByIndex(addr string, index int) (int, Endpoin
 
 // RoundTrip selects an endpoint, then call it. If failed, it will retry it
 // by the fail handler.
-//
-// Notice: the retry number won't exceeds the number of the endpoints.
 func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Response, err error) {
 	raddr := req.RemoteAddrString()
 	if sreq, ok := req.(RequestSession); ok {
@@ -151,7 +147,6 @@ func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Respon
 	if endpoint == nil {
 		return nil, ErrNoAvailableEndpoint
 	}
-	defer lb.Finish(endpoint)
 
 	var retry int
 	var interval time.Duration
@@ -160,9 +155,12 @@ func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Respon
 			re.SetUsedEndpoint(endpoint)
 		}
 
+		lb.Provider.Hit(endpoint)
 		if resp, err = endpoint.RoundTrip(ctx, req); err == nil {
+			lb.Finish(endpoint)
 			return
 		}
+		lb.Finish(endpoint)
 
 		if lb.FailRetry == nil {
 			break
