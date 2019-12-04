@@ -133,7 +133,7 @@ func (p *GeneralProvider) SetSelector(s Selector) {
 
 func (p *GeneralProvider) addEndpoints(endpoints ...Endpoint) {
 	p.endpoints = append(p.endpoints, endpoints...)
-	sort.Sort(Endpoints(p.endpoints))
+	sort.Sort(p.endpoints)
 	p.updateLen(len(p.endpoints))
 }
 
@@ -170,7 +170,7 @@ func (p *GeneralProvider) AddEndpoint(endpoint Endpoint) {
 	}
 	if old == nil {
 		p.endpoints = append(p.endpoints, endpoint)
-		sort.Sort(Endpoints(p.endpoints))
+		sort.Sort(p.endpoints)
 	}
 	p.updateLen(len(p.endpoints))
 	p.lock.Unlock()
@@ -204,7 +204,7 @@ func (p *GeneralProvider) DelEndpointByString(endpoint string) {
 		}
 	}
 	if exist {
-		sort.Sort(Endpoints(p.endpoints))
+		sort.Sort(p.endpoints)
 		p.updateLen(len(p.endpoints))
 	}
 	p.lock.Unlock()
