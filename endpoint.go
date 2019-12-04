@@ -36,11 +36,6 @@ type RequestSession interface {
 	SessionID() string
 }
 
-// RequestEndpoint is used to notice the request which endpoint is handling it.
-type RequestEndpoint interface {
-	SetUsedEndpoint(Endpoint)
-}
-
 // Request represents a request.
 type Request interface {
 	// RemoteAddrString returns the address string of the remote peer,
