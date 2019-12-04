@@ -109,7 +109,7 @@ func (es Endpoints) Less(i, j int) bool {
 }
 
 // HealthChecker is used to check the health status of an endpoint.
-type HealthChecker func(context.Context, Endpoint) bool
+type HealthChecker func(context.Context, Endpoint) error
 
 // CheckEndpointHealth check whether the endpoint is the healthy.
 //
@@ -120,11 +120,11 @@ type HealthChecker func(context.Context, Endpoint) bool
 // retry it, and if retryInterval is equal to 0, it will retry it immediately,
 // not wait for the interval duration.
 func CheckEndpointHealth(timeout, retryInterval time.Duration, retryNum int) HealthChecker {
-	return func(ctx context.Context, endpoint Endpoint) bool {
+	return func(ctx context.Context, endpoint Endpoint) error {
 		addr := endpoint.String()
 		if strings.HasPrefix(addr, "http") {
 			if u, err := url.Parse(addr); err != nil {
-				return false
+				return err
 			} else if _, _, err := net.SplitHostPort(u.Host); err == nil {
 				addr = u.Host
 			} else if strings.HasPrefix(addr, "https") {
@@ -134,16 +134,16 @@ func CheckEndpointHealth(timeout, retryInterval time.Duration, retryNum int) Hea
 			}
 		}
 
-		v, _ := Retry(ctx, retryNum, retryInterval, func(context.Context) (interface{}, error) {
+		_, err := Retry(ctx, retryNum, retryInterval, func(context.Context) (interface{}, error) {
 			conn, err := net.DialTimeout("tcp", addr, timeout)
 			if err == nil {
 				conn.Close()
-				return true, nil
+				return nil, nil
 			}
-			return false, err
+			return nil, err
 		})
 
-		return v.(bool)
+		return err.(error)
 	}
 }
 

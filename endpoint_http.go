@@ -97,7 +97,7 @@ func (h httpEndpoint) IsHealthy(ctx context.Context) bool {
 	if client == nil {
 		client = http.DefaultClient
 	}
-	return h.checker(SetHTTPClientToContext(ctx, client), h)
+	return h.checker(SetHTTPClientToContext(ctx, client), h) == nil
 }
 
 func (h httpEndpoint) RoundTrip(ctx context.Context, req Request) (resp Response, err error) {
