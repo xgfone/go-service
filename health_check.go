@@ -73,6 +73,7 @@ type statusEnpoind struct {
 	healthy bool
 }
 
+func (se statusEnpoind) Unwrap() Endpoint               { return se.Endpoint }
 func (se statusEnpoind) IsHealthy(context.Context) bool { return se.healthy }
 
 // Endpoints returns the copy of all the endpoints, which cannot be cached.

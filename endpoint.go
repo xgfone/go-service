@@ -76,6 +76,13 @@ type EndpointStatus interface {
 	Deactivate(context.Context)
 }
 
+// EndpointUnwrap is used to unwrap the inner endpoint.
+type EndpointUnwrap interface {
+	// Unwrap unwraps the inner endpoint, but returns nil instead if no inner
+	// endpoint.
+	Unwrap() Endpoint
+}
+
 // WeightEndpoint represents an endpoint with the weight.
 type WeightEndpoint interface {
 	Endpoint
