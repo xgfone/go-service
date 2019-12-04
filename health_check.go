@@ -111,12 +111,16 @@ func (hc *HealthCheck) DelEndpoint(endpoint Endpoint) {
 // DelEndpointByString deletes the endpoint in order not to monitor it.
 func (hc *HealthCheck) DelEndpointByString(endpoint string) {
 	hc.lock.Lock()
-	if ep, ok := hc.endpoints[endpoint]; ok {
-		close(ep.Exit)
-		hc.updatech <- endpointOp{Add: false, Endpoint: ep.Endpoint}
+	ep, ok := hc.endpoints[endpoint]
+	if ok {
 		delete(hc.endpoints, endpoint)
 	}
 	hc.lock.Unlock()
+
+	if ok {
+		close(ep.Exit)
+		hc.updatech <- endpointOp{Add: false, Endpoint: ep.Endpoint}
+	}
 }
 
 // Stop stops the check of the health status of all the endpoints.
