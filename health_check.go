@@ -33,6 +33,18 @@ type endpointOp struct {
 	Endpoint Endpoint
 }
 
+type updaterFunc func(addOrDel bool, endpoint Endpoint)
+
+func (u updaterFunc) AddEndpoint(ep Endpoint) { u(true, ep) }
+func (u updaterFunc) DelEndpoint(ep Endpoint) { u(false, ep) }
+
+// UpdaterFunc covnerts the function to Updater.
+//
+// If addOrDel is true, it calls the method AddEndpoint. Or call DelEndpoint.
+func UpdaterFunc(f func(addOrDel bool, endpoint Endpoint)) Updater {
+	return updaterFunc(f)
+}
+
 // Updater represents a updater to update the endpoint.
 type Updater interface {
 	AddEndpoint(Endpoint)
