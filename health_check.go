@@ -228,7 +228,7 @@ func NewStatusLoadBalancer(provider Provider) *StatusLoadBalancer {
 
 // Endpoints returns the copy of all the endpoints, which cannot be cached.
 //
-// If you want to cache them, please use slb.LoadBalancer.EndpointManager.Endpoints().
+// If you want to cache them, please use slb.LoadBalancer.EndpointManager().Endpoints().
 func (slb *StatusLoadBalancer) Endpoints() Endpoints {
 	return slb.HealthCheck.Endpoints()
 }
