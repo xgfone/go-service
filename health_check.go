@@ -16,6 +16,7 @@ package service
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 )
@@ -33,16 +34,31 @@ type endpointOp struct {
 	Endpoint Endpoint
 }
 
-type updaterFunc func(addOrDel bool, endpoint Endpoint)
+type updaterFunc struct {
+	update func(addOrDel bool, endpoint Endpoint)
+}
 
-func (u updaterFunc) AddEndpoint(ep Endpoint) { u(true, ep) }
-func (u updaterFunc) DelEndpoint(ep Endpoint) { u(false, ep) }
+func (u *updaterFunc) AddEndpoint(ep Endpoint) { u.update(true, ep) }
+func (u *updaterFunc) DelEndpoint(ep Endpoint) { u.update(false, ep) }
 
 // UpdaterFunc covnerts the function to Updater.
 //
 // If addOrDel is true, it calls the method AddEndpoint. Or call DelEndpoint.
+//
+// Notice: the returned Updater is comparable.
 func UpdaterFunc(f func(addOrDel bool, endpoint Endpoint)) Updater {
-	return updaterFunc(f)
+	return &updaterFunc{update: f}
+}
+
+type updaters []Updater
+
+func (us updaters) Len() int      { return len(us) }
+func (us updaters) Swap(i, j int) { us[i], us[j] = us[j], us[i] }
+func (us updaters) Less(i, j int) bool {
+	if us[i] == nil {
+		return false
+	}
+	return true
 }
 
 // Updater represents a updater to update the endpoint.
@@ -56,9 +72,10 @@ type HealthCheck struct {
 	lock sync.RWMutex
 
 	exit      chan struct{}
-	updaters  []Updater
 	updatech  chan endpointOp
-	endpoints map[string]*endpointWrapper
+	updaters  []Updater
+	updaterms map[string][]Updater        // endpoint => []Updater
+	endpoints map[string]*endpointWrapper // endpoint => endpointWrapper
 }
 
 // NewHealthCheck returns a new NewHealthCheck.
@@ -66,18 +83,82 @@ func NewHealthCheck() *HealthCheck {
 	hc := &HealthCheck{
 		exit:      make(chan struct{}),
 		updatech:  make(chan endpointOp, 32),
+		updaterms: make(map[string][]Updater, 4),
 		endpoints: make(map[string]*endpointWrapper, 32),
 	}
 	go hc.updateEndpoint()
 	return hc
 }
 
-// AddUpdater adds a updater to monitor the change of the health status
-// of the endpoint.
+// AddUpdater is equal to hc.Subscribe("", updater).
+func (hc *HealthCheck) AddUpdater(updater Updater) { hc.Subscribe("", updater) }
+
+// Subscribe subscribes the update of the special endpoint, that's, the updater
+// is called only when the status of the special endpoint has been changed.
 //
-// It should be called before any endpoint is added.
-func (hc *HealthCheck) AddUpdater(updater Updater) {
-	hc.updaters = append(hc.updaters, updater)
+// If endpoint is "", the updater is called only if any endpoint has changed.
+//
+// Notice: It should be called before any endpoint is added. And you should
+// subscribe the same updater for the same endpoint.
+func (hc *HealthCheck) Subscribe(endpoint string, updater Updater) {
+	hc.lock.Lock()
+	defer hc.lock.Unlock()
+
+	if endpoint == "" {
+		hc.updaters = append(hc.updaters, updater)
+	} else {
+		hc.updaterms[endpoint] = append(hc.updaterms[endpoint], updater)
+	}
+}
+
+// Unsubscribe unsubscribes all the updaters of the special endpoint.
+//
+// Notice: the endpoint must not be empty.
+func (hc *HealthCheck) Unsubscribe(endpoint string) {
+	if endpoint == "" {
+		panic("HealthCheck.Unsubscribe: endpoint must not be empty")
+	}
+
+	hc.lock.Lock()
+	defer hc.lock.Unlock()
+	delete(hc.updaterms, endpoint)
+}
+
+// UnsubscribeByUpdater unsubscribes the special updater of all the endpoints.
+//
+// Notice: updater must be comparable.
+func (hc *HealthCheck) UnsubscribeByUpdater(updater Updater) {
+	hc.lock.Lock()
+	defer hc.lock.Unlock()
+
+	var num int
+	for i, u := range hc.updaters {
+		if u == updater {
+			num++
+			hc.updaters[i] = nil
+		}
+	}
+	if num > 0 {
+		sort.Sort(updaters(hc.updaters))
+		hc.updaters = hc.updaters[:len(hc.updaters)-num]
+	}
+
+	for ep, us := range hc.updaterms {
+		num = 0
+		for i, u := range us {
+			if u == updater {
+				num++
+				us[i] = nil
+			}
+		}
+
+		if len(us) == num {
+			delete(hc.updaterms, ep)
+		} else if num > 0 {
+			sort.Sort(updaters(us))
+			hc.updaterms[ep] = us[:len(us)-num]
+		}
+	}
 }
 
 type statusEnpoind struct {
@@ -194,15 +275,28 @@ func (hc *HealthCheck) updateEndpoint() {
 		case <-hc.exit:
 			return
 		case epop := <-hc.updatech:
-			if epop.Add {
-				for _, updater := range hc.updaters {
-					updater.AddEndpoint(epop.Endpoint)
-				}
-			} else {
-				for _, updater := range hc.updaters {
-					updater.DelEndpoint(epop.Endpoint)
-				}
-			}
+			hc.updateEndpointSafely(epop.Add, epop.Endpoint)
+		}
+	}
+}
+
+func (hc *HealthCheck) updateEndpointSafely(add bool, ep Endpoint) {
+	hc.lock.RLock()
+	defer hc.lock.RUnlock()
+
+	if add {
+		for _, updater := range hc.updaters {
+			updater.AddEndpoint(ep)
+		}
+		for _, updater := range hc.updaterms[ep.String()] {
+			updater.AddEndpoint(ep)
+		}
+	} else {
+		for _, updater := range hc.updaters {
+			updater.DelEndpoint(ep)
+		}
+		for _, updater := range hc.updaterms[ep.String()] {
+			updater.DelEndpoint(ep)
 		}
 	}
 }
