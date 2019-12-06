@@ -272,6 +272,8 @@ func (hc *HealthCheck) check(ew *endpointWrapper) {
 }
 
 func (hc *HealthCheck) checkEndpoint(ctx context.Context, ew *endpointWrapper) {
+	defer recover() // Prevent IsHealthy from panicking.
+
 	if health := ew.Endpoint.IsHealthy(ctx); health != ew.Health {
 		ew.Health = health
 		if health {
