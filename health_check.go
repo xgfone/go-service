@@ -90,6 +90,19 @@ func NewHealthCheck() *HealthCheck {
 	return hc
 }
 
+// GetUpdater returns the updaters by the endpoint.
+func (hc *HealthCheck) GetUpdater(endpoint string) []Updater {
+	hc.lock.RLock()
+	updaters := hc.updaters
+	if endpoint != "" {
+		updaters = hc.updaterms[endpoint]
+	}
+	us := make([]Updater, len(hc.updaters))
+	copy(us, updaters)
+	hc.lock.RUnlock()
+	return us
+}
+
 // AddUpdater is equal to hc.Subscribe("", updater).
 func (hc *HealthCheck) AddUpdater(updater Updater) { hc.Subscribe("", updater) }
 
