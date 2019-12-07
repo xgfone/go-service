@@ -55,10 +55,10 @@ type updaters []Updater
 func (us updaters) Len() int      { return len(us) }
 func (us updaters) Swap(i, j int) { us[i], us[j] = us[j], us[i] }
 func (us updaters) Less(i, j int) bool {
-	if us[i] == nil {
-		return false
+	if us[j] == nil {
+		return true
 	}
-	return true
+	return false
 }
 
 // Updater represents a updater to update the endpoint.
