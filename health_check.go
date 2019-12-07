@@ -89,6 +89,19 @@ func NewHealthCheck() *HealthCheck {
 	return hc
 }
 
+// GetAllSubscribers returns all the subscribers.
+func (hc *HealthCheck) GetAllSubscribers() map[string][]Updater {
+	hc.lock.RLock()
+	us := make(map[string][]Updater, len(hc.updaters))
+	for endpoint, updaters := range hc.updaters {
+		_us := make([]Updater, len(updaters))
+		copy(_us, updaters)
+		us[endpoint] = _us
+	}
+	hc.lock.RUnlock()
+	return us
+}
+
 // GetUpdater returns the updaters by the endpoint.
 func (hc *HealthCheck) GetUpdater(endpoint string) []Updater {
 	hc.lock.RLock()
