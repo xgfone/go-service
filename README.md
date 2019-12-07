@@ -120,9 +120,9 @@ func init() {
 	lb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.2:80", nil), interval, timeout)
 	lb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.3:80", nil), interval, timeout)
 
-	getrt := service.NewGetRoundTripperFromMap(map[string]service.RoundTripper{"127.0.0.1:80": lb})
-	// For the single RoundTripper, you can also use NewSingleGetRoundTripper.
-	// getrt := service.NewSingleGetRoundTripper("127.0.0.1:80", lb)
+	getrt := service.NewRoundTripperGetterFromMap(map[string]service.RoundTripper{"127.0.0.1:80": lb})
+	// For the single RoundTripper, you can also use NewSingleRoundTripperGetter.
+	// getrt := service.NewSingleRoundTripperGetter("127.0.0.1:80", lb)
 	http.DefaultClient.Transport = service.ToHTTPRoundTripper(getrt)
 }
 

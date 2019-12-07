@@ -193,7 +193,7 @@ func (r httpRequest) ToHTTPRequest(ctx context.Context, ep Endpoint) (*http.Requ
 // If no the corresponding LoadBalance RoundTripper, it will use
 // defaultHTTPRoundTripper instead, which is http.DefaultClient.Transport
 // or http.DefaultTransport.
-func ToHTTPRoundTripper(getRoundTripper GetRoundTripper,
+func ToHTTPRoundTripper(getRoundTripper RoundTripperGetter,
 	defaultHTTPRoundTripper ...http.RoundTripper) http.RoundTripper {
 	var hrt http.RoundTripper
 	if len(defaultHTTPRoundTripper) > 0 && defaultHTTPRoundTripper[0] != nil {

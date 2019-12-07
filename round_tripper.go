@@ -29,22 +29,22 @@ func (f RoundTripperFunc) RoundTrip(c context.Context, r Request) (Response, err
 	return f(c, r)
 }
 
-// GetRoundTripper is used to get the corresponding RoundTripper by the key.
+// RoundTripperGetter is used to get the corresponding RoundTripper by the key.
 //
 // If no the corresponding RoundTripper, it should return nil.
-type GetRoundTripper func(key string) RoundTripper
+type RoundTripperGetter func(key string) RoundTripper
 
-// NewGetRoundTripperFromMap returns a new GetRoundTripper,
+// NewRoundTripperGetterFromMap returns a new RoundTripperGetter,
 // which returns the RoundTripper from a map.
-func NewGetRoundTripperFromMap(ms map[string]RoundTripper) GetRoundTripper {
+func NewRoundTripperGetterFromMap(ms map[string]RoundTripper) RoundTripperGetter {
 	return func(key string) RoundTripper {
 		return ms[key]
 	}
 }
 
-// NewSingleGetRoundTripper returns a new GetRoundTripper, which compares
+// NewSingleRoundTripperGetter returns a new RoundTripperGetter, which compares
 // the key with the request key and returns the rt if they are equal.
-func NewSingleGetRoundTripper(key string, rt RoundTripper) GetRoundTripper {
+func NewSingleRoundTripperGetter(key string, rt RoundTripper) RoundTripperGetter {
 	return func(rkey string) RoundTripper {
 		if rkey == key {
 			return rt
