@@ -201,6 +201,9 @@ func (hc *HealthCheck) AddEndpoint(ep Endpoint, interval, timeout time.Duration)
 
 	addr := ep.String()
 	hc.lock.Lock()
+	if epw, ok := hc.endpoints[addr]; ok {
+		close(epw.Exit)
+	}
 	hc.endpoints[addr] = ew
 	hc.lock.Unlock()
 	go hc.check(ew)
@@ -236,8 +239,23 @@ func (hc *HealthCheck) Stop() {
 	hc.exit <- struct{}{}
 }
 
-func (hc *HealthCheck) cancelNothing() {}
+func (hc *HealthCheck) check(ew *endpointWrapper) {
+	hc.checkEndpoint(ew)
+	ticker := time.NewTicker(ew.Interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-hc.exit:
+			return
+		case <-ew.Exit:
+			return
+		case <-ticker.C:
+			hc.checkEndpoint(ew)
+		}
+	}
+}
 
+func (hc *HealthCheck) cancelNothing() {}
 func (hc *HealthCheck) getContext(ew *endpointWrapper) (context.Context, context.CancelFunc) {
 	if ew.Timeout > 0 {
 		return context.WithTimeout(context.Background(), ew.Timeout)
@@ -245,31 +263,11 @@ func (hc *HealthCheck) getContext(ew *endpointWrapper) (context.Context, context
 	return context.Background(), hc.cancelNothing
 }
 
-func (hc *HealthCheck) check(ew *endpointWrapper) {
-	ctx, cancel := hc.getContext(ew)
-	hc.checkEndpoint(ctx, ew)
-	cancel()
-
-	ticker := time.NewTicker(ew.Interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-hc.exit:
-			cancel()
-			return
-		case <-ew.Exit:
-			cancel()
-			return
-		case <-ticker.C:
-			ctx, cancel = hc.getContext(ew)
-			hc.checkEndpoint(ctx, ew)
-			cancel()
-		}
-	}
-}
-
-func (hc *HealthCheck) checkEndpoint(ctx context.Context, ew *endpointWrapper) {
+func (hc *HealthCheck) checkEndpoint(ew *endpointWrapper) {
 	defer recover() // Prevent IsHealthy from panicking.
+
+	ctx, cancel := hc.getContext(ew)
+	defer cancel()
 
 	if health := ew.Endpoint.IsHealthy(ctx); health != ew.Health {
 		ew.Health = health
