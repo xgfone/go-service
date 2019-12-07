@@ -107,8 +107,9 @@ func (hc *HealthCheck) AddUpdater(updater Updater) { hc.Subscribe("", updater) }
 //
 // If endpoint is "", the updater is called only if any endpoint has changed.
 //
-// Notice: It should be called before any endpoint is added. And you should
-// subscribe the same updater for the same endpoint.
+// For the same endpoint and updater, it only adds it once.
+//
+// Notice: It should be called before any endpoint is added.
 func (hc *HealthCheck) Subscribe(endpoint string, updater Updater) {
 	hc.lock.Lock()
 	defer hc.lock.Unlock()
