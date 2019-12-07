@@ -73,8 +73,7 @@ type HealthCheck struct {
 
 	exit      chan struct{}
 	updatech  chan endpointOp
-	updaters  []Updater
-	updaterms map[string][]Updater        // endpoint => []Updater
+	updaters  map[string][]Updater        // endpoint => []Updater
 	endpoints map[string]*endpointWrapper // endpoint => endpointWrapper
 }
 
@@ -83,7 +82,7 @@ func NewHealthCheck() *HealthCheck {
 	hc := &HealthCheck{
 		exit:      make(chan struct{}),
 		updatech:  make(chan endpointOp, 32),
-		updaterms: make(map[string][]Updater, 4),
+		updaters:  make(map[string][]Updater, 4),
 		endpoints: make(map[string]*endpointWrapper, 32),
 	}
 	go hc.updateEndpoint()
@@ -93,11 +92,8 @@ func NewHealthCheck() *HealthCheck {
 // GetUpdater returns the updaters by the endpoint.
 func (hc *HealthCheck) GetUpdater(endpoint string) []Updater {
 	hc.lock.RLock()
-	updaters := hc.updaters
-	if endpoint != "" {
-		updaters = hc.updaterms[endpoint]
-	}
-	us := make([]Updater, len(hc.updaters))
+	updaters := hc.updaters[endpoint]
+	us := make([]Updater, len(updaters))
 	copy(us, updaters)
 	hc.lock.RUnlock()
 	return us
@@ -117,24 +113,20 @@ func (hc *HealthCheck) Subscribe(endpoint string, updater Updater) {
 	hc.lock.Lock()
 	defer hc.lock.Unlock()
 
-	if endpoint == "" {
-		hc.updaters = append(hc.updaters, updater)
-	} else {
-		hc.updaterms[endpoint] = append(hc.updaterms[endpoint], updater)
+	updaters := hc.updaters[endpoint]
+	for _, u := range updaters {
+		if u == updater {
+			return
+		}
 	}
+	hc.updaters[endpoint] = append(updaters, updater)
 }
 
 // Unsubscribe unsubscribes all the updaters of the special endpoint.
-//
-// Notice: the endpoint must not be empty.
 func (hc *HealthCheck) Unsubscribe(endpoint string) {
-	if endpoint == "" {
-		panic("HealthCheck.Unsubscribe: endpoint must not be empty")
-	}
-
 	hc.lock.Lock()
-	defer hc.lock.Unlock()
-	delete(hc.updaterms, endpoint)
+	delete(hc.updaters, endpoint)
+	hc.lock.Unlock()
 }
 
 // UnsubscribeByUpdater unsubscribes the special updater of all the endpoints.
@@ -144,32 +136,23 @@ func (hc *HealthCheck) UnsubscribeByUpdater(updater Updater) {
 	hc.lock.Lock()
 	defer hc.lock.Unlock()
 
-	var num int
-	for i, u := range hc.updaters {
-		if u == updater {
-			num++
-			hc.updaters[i] = nil
-		}
-	}
-	if num > 0 {
-		sort.Sort(updaters(hc.updaters))
-		hc.updaters = hc.updaters[:len(hc.updaters)-num]
-	}
-
-	for ep, us := range hc.updaterms {
-		num = 0
+	for ep, us := range hc.updaters {
+		var exist bool
 		for i, u := range us {
 			if u == updater {
-				num++
 				us[i] = nil
+				exist = true
+				break
 			}
 		}
 
-		if len(us) == num {
-			delete(hc.updaterms, ep)
-		} else if num > 0 {
-			sort.Sort(updaters(us))
-			hc.updaterms[ep] = us[:len(us)-num]
+		if exist {
+			if len(us) == 1 {
+				delete(hc.updaters, ep)
+			} else {
+				sort.Sort(updaters(us))
+				hc.updaters[ep] = us[:len(us)-1]
+			}
 		}
 	}
 }
@@ -300,17 +283,17 @@ func (hc *HealthCheck) updateEndpointSafely(add bool, ep Endpoint) {
 	defer hc.lock.RUnlock()
 
 	if add {
-		for _, updater := range hc.updaters {
+		for _, updater := range hc.updaters[""] {
 			updater.AddEndpoint(ep)
 		}
-		for _, updater := range hc.updaterms[ep.String()] {
+		for _, updater := range hc.updaters[ep.String()] {
 			updater.AddEndpoint(ep)
 		}
 	} else {
-		for _, updater := range hc.updaters {
+		for _, updater := range hc.updaters[""] {
 			updater.DelEndpoint(ep)
 		}
-		for _, updater := range hc.updaterms[ep.String()] {
+		for _, updater := range hc.updaters[ep.String()] {
 			updater.DelEndpoint(ep)
 		}
 	}

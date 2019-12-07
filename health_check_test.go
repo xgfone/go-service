@@ -126,44 +126,44 @@ func TestHealthCheck_Unsubscribe(t *testing.T) {
 
 	if len(hc.updaters) != 4 {
 		t.Error(hc.updaters)
-	} else if len(hc.updaterms) != 3 {
-		t.Error(hc.updaterms)
-	} else if len(hc.updaterms["endpoint1"]) != 3 {
-		t.Error(hc.updaterms["endpoint1"])
-	} else if len(hc.updaterms["endpoint2"]) != 3 {
-		t.Error(hc.updaterms["endpoint2"])
-	} else if len(hc.updaterms["endpoint3"]) != 3 {
-		t.Error(hc.updaterms["endpoint3"])
+	} else if len(hc.updaters[""]) != 3 {
+		t.Error(hc.updaters[""])
+	} else if len(hc.updaters["endpoint1"]) != 3 {
+		t.Error(hc.updaters["endpoint1"])
+	} else if len(hc.updaters["endpoint2"]) != 2 {
+		t.Error(hc.updaters["endpoint2"])
+	} else if len(hc.updaters["endpoint3"]) != 3 {
+		t.Error(hc.updaters["endpoint3"])
 	}
 
 	hc.UnsubscribeByUpdater(sub1)
-	if len(hc.updaters) != 3 {
+	if len(hc.updaters) != 4 {
 		t.Error(hc.updaters)
-	} else if len(hc.updaterms) != 3 {
-		t.Error(hc.updaterms)
-	} else if len(hc.updaterms["endpoint1"]) != 2 {
-		t.Error(hc.updaterms["endpoint1"])
-	} else if len(hc.updaterms["endpoint2"]) != 1 {
-		t.Error(hc.updaterms["endpoint2"])
-	} else if len(hc.updaterms["endpoint3"]) != 2 {
-		t.Error(hc.updaterms["endpoint3"])
+	} else if len(hc.updaters[""]) != 2 {
+		t.Error(hc.updaters[""])
+	} else if len(hc.updaters["endpoint1"]) != 2 {
+		t.Error(hc.updaters["endpoint1"])
+	} else if len(hc.updaters["endpoint2"]) != 1 {
+		t.Error(hc.updaters["endpoint2"])
+	} else if len(hc.updaters["endpoint3"]) != 2 {
+		t.Error(hc.updaters["endpoint3"])
 	}
 
 	hc.UnsubscribeByUpdater(sub3)
-	if len(hc.updaters) != 1 {
+	if len(hc.updaters) != 3 {
 		t.Error(hc.updaters)
-	} else if len(hc.updaterms) != 2 {
-		t.Error(hc.updaterms)
-	} else if us := hc.updaterms["endpoint1"]; len(us) != 1 || us[0] != sub2 {
+	} else if len(hc.updaters[""]) != 1 {
+		t.Error(hc.updaters[""])
+	} else if us := hc.updaters["endpoint1"]; len(us) != 1 || us[0] != sub2 {
 		t.Error(us)
-	} else if us := hc.updaterms["endpoint3"]; len(us) != 1 || us[0] != sub2 {
+	} else if hc.updaters["endpoint2"] != nil {
+		t.Error(hc.updaters["endpoint2"])
+	} else if us := hc.updaters["endpoint3"]; len(us) != 1 || us[0] != sub2 {
 		t.Error(us)
 	}
 
 	hc.UnsubscribeByUpdater(sub2)
 	if len(hc.updaters) != 0 {
 		t.Error(hc.updaters)
-	} else if len(hc.updaterms) != 0 {
-		t.Error(hc.updaterms)
 	}
 }
