@@ -102,8 +102,8 @@ func (hc *HealthCheck) GetAllSubscribers() map[string][]Updater {
 	return us
 }
 
-// GetUpdater returns the updaters by the endpoint.
-func (hc *HealthCheck) GetUpdater(endpoint string) []Updater {
+// GetSubscribers returns the subscribers of the endpoint.
+func (hc *HealthCheck) GetSubscribers(endpoint string) []Updater {
 	hc.lock.RLock()
 	updaters := hc.updaters[endpoint]
 	us := make([]Updater, len(updaters))
