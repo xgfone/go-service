@@ -142,8 +142,10 @@ func CheckEndpointHealth(timeout, retryInterval time.Duration, retryNum int) Hea
 			}
 			return nil, err
 		})
-
-		return err.(error)
+		if err != nil {
+			return err.(error)
+		}
+		return nil
 	}
 }
 
