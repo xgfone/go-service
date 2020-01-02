@@ -69,10 +69,16 @@ type Endpoint interface {
 type EndpointStatus interface {
 	// Activate is called when the endpoint is added into the provider,
 	// if the endpoint has implemented the interface.
+	//
+	// Notice: An endpoint may be added into more than one provider, so it may
+	// be called multiple times.
 	Activate(context.Context)
 
 	// Deactivate is called when the endpoint is removed from the provider,
 	// if the endpoint has implemented the interface.
+	//
+	// Notice: An endpoint may be added into more than one provider, so it may
+	// be called multiple times.
 	Deactivate(context.Context)
 }
 

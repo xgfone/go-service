@@ -67,6 +67,13 @@ func (lb *LoadBalancer) ProviderSelector() ProviderSelector {
 	return ps
 }
 
+// EndpointGate returns the ProviderEndpointGate if the provider has implemented
+// the interface ProviderEndpointGate. Or returns nil instead.
+func (lb *LoadBalancer) EndpointGate() ProviderEndpointGate {
+	eg, _ := lb.Provider.(ProviderEndpointGate)
+	return eg
+}
+
 // EndpointManager asserts the provider to ProviderEndpointManager
 // if the provider has implemented the interface ProviderEndpointManager.
 // Or return nil instead.
