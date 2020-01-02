@@ -134,11 +134,11 @@ func (p *GeneralProvider) SetSelector(s Selector) {
 func (p *GeneralProvider) addEndpoints(endpoints ...Endpoint) {
 	p.endpoints = append(p.endpoints, endpoints...)
 	sort.Sort(p.endpoints)
-	p.updateLen(len(p.endpoints))
+	p.updateLen()
 }
 
-func (p *GeneralProvider) updateLen(_len int) {
-	atomic.StoreUint32(&p.eplen, uint32(_len))
+func (p *GeneralProvider) updateLen() {
+	atomic.StoreUint32(&p.eplen, uint32(len(p.endpoints)))
 }
 
 // Len returns the number of the endpoints.
@@ -171,8 +171,8 @@ func (p *GeneralProvider) AddEndpoint(endpoint Endpoint) {
 	if old == nil {
 		p.endpoints = append(p.endpoints, endpoint)
 		sort.Sort(p.endpoints)
+		p.updateLen()
 	}
-	p.updateLen(len(p.endpoints))
 	p.lock.Unlock()
 
 	if eps, ok := old.(EndpointStatus); ok {
@@ -201,11 +201,13 @@ func (p *GeneralProvider) DelEndpointByString(endpoint string) {
 			exist = true
 			deleted = ep
 			p.endpoints[i] = nil
+			break
 		}
 	}
 	if exist {
 		sort.Sort(p.endpoints)
-		p.updateLen(len(p.endpoints))
+		p.endpoints = p.endpoints[:len(p.endpoints)-1]
+		p.updateLen()
 	}
 	p.lock.Unlock()
 
