@@ -23,18 +23,11 @@ import (
 	"time"
 )
 
-type noopEndpoint string
-
-func newNoopEndpoint(addr string) Endpoint                                  { return noopEndpoint(addr) }
-func (e noopEndpoint) String() string                                       { return string(e) }
-func (e noopEndpoint) IsHealthy(context.Context) bool                       { return true }
-func (e noopEndpoint) RoundTrip(context.Context, Request) (Response, error) { return nil, nil }
-
 func TestLoadBalancer_AddEndpoints(t *testing.T) {
 	lb := NewLoadBalancer(nil)
 
-	lb.EndpointManager().AddEndpoint(newNoopEndpoint("1.1.1.1:80"))
-	lb.EndpointManager().AddEndpoint(newNoopEndpoint("2.2.2.2:80"))
+	lb.EndpointManager().AddEndpoint(NewNoopEndpoint("1.1.1.1:80"))
+	lb.EndpointManager().AddEndpoint(NewNoopEndpoint("2.2.2.2:80"))
 	if eps := lb.EndpointManager().Endpoints(); len(eps) != 2 {
 		t.Error(eps)
 	} else if eps[0].String() != "1.1.1.1:80" {
@@ -43,9 +36,9 @@ func TestLoadBalancer_AddEndpoints(t *testing.T) {
 		t.Error(eps[1].String())
 	}
 
-	lb.EndpointManager().AddEndpoint(newNoopEndpoint("4.4.4.4:80"))
-	lb.EndpointManager().AddEndpoint(newNoopEndpoint("3.3.3.3:80"))
-	lb.EndpointManager().AddEndpoint(newNoopEndpoint("2.2.2.2:80"))
+	lb.EndpointManager().AddEndpoint(NewNoopEndpoint("4.4.4.4:80"))
+	lb.EndpointManager().AddEndpoint(NewNoopEndpoint("3.3.3.3:80"))
+	lb.EndpointManager().AddEndpoint(NewNoopEndpoint("2.2.2.2:80"))
 	if eps := lb.EndpointManager().Endpoints(); len(eps) != 4 {
 		t.Error(eps)
 	} else if eps[0].String() != "1.1.1.1:80" {

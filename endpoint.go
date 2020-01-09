@@ -204,3 +204,11 @@ func (we weightEndpoint) Deactivate(ctx context.Context) {
 		eps.Deactivate(ctx)
 	}
 }
+
+type noopEndpoint string
+
+// NewNoopEndpoint returns a new Noop endpoint, which does nothing.
+func NewNoopEndpoint(addr string) Endpoint                                  { return noopEndpoint(addr) }
+func (e noopEndpoint) String() string                                       { return string(e) }
+func (e noopEndpoint) IsHealthy(context.Context) bool                       { return true }
+func (e noopEndpoint) RoundTrip(context.Context, Request) (Response, error) { return nil, nil }
