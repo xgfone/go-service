@@ -202,6 +202,10 @@ func (hc *HealthCheck) AddEndpoint(ep Endpoint, interval, timeout time.Duration)
 	addr := ep.String()
 	hc.lock.Lock()
 	if epw, ok := hc.endpoints[addr]; ok {
+		if epw.Endpoint == ep {
+			hc.lock.Unlock()
+			return
+		}
 		close(epw.Exit)
 	}
 	hc.endpoints[addr] = ew
