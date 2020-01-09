@@ -52,7 +52,7 @@ func ExampleLoadBalancerGroup() {
 	lbg.AddEndpoint("group3", ep4)
 	lbg.AddEndpoint("group3", ep5)
 
-	time.Sleep(time.Millisecond * 30)
+	time.Sleep(time.Millisecond * 100)
 
 	groups := lbg.GetAllGroups()
 	sort.Strings(groups)
@@ -63,14 +63,14 @@ func ExampleLoadBalancerGroup() {
 	fmt.Println("group3:", lbg.GetLoadBalancer("group3").EndpointManager().Endpoints())
 
 	lbg.DelEndpoint(ep2)
-	time.Sleep(time.Millisecond * 30)
+	time.Sleep(time.Millisecond * 50)
 	fmt.Println("group1:", lbg.GetLoadBalancer("group1").EndpointManager().Endpoints())
 	fmt.Println("group2:", lbg.GetLoadBalancer("group2").EndpointManager().Endpoints())
 	fmt.Println("group3:", lbg.GetLoadBalancer("group3").EndpointManager().Endpoints())
 
 	lbg.DelGroup("group2")
 	lbg.DelGroup("group3")
-	time.Sleep(time.Millisecond * 30)
+	time.Sleep(time.Millisecond * 50)
 
 	fmt.Println("group1:", lbg.GetLoadBalancer("group1").EndpointManager().Endpoints())
 	fmt.Println("group2:", lbg.GetLoadBalancer("group2"))
