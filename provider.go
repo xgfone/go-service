@@ -389,26 +389,3 @@ func (p *GeneralProvider) OnSelect(f func(Endpoint)) {
 func (p *GeneralProvider) OnFinish(f func(Endpoint)) {
 	p.onFinishs.Append(f)
 }
-
-// ProviderGetter is used to get the corresponding provider by the key.
-//
-// If no the corresponding provider, it should return nil.
-type ProviderGetter func(key string) Provider
-
-// NewProviderGetterFromMap returns a new ProviderGetter, which returns the provider from a map.
-func NewProviderGetterFromMap(ms map[string]Provider) ProviderGetter {
-	return func(key string) Provider {
-		return ms[key]
-	}
-}
-
-// NewSingleProviderGetter returns a new ProviderGetter, which compares
-// the key with the request key and returns the provider if they are equal.
-func NewSingleProviderGetter(key string, provider Provider) ProviderGetter {
-	return func(rkey string) Provider {
-		if rkey == key {
-			return provider
-		}
-		return nil
-	}
-}
