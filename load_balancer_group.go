@@ -175,7 +175,6 @@ func (lbg *LoadBalancerGroup) DelEndpoint(endpoint Endpoint) bool {
 		lbg.OnEndpoint.DelEndpoint(endpoint)
 	}
 	return ok
-
 }
 
 // DelEndpointByString deletes the endpoints from all LoadBalancers.
@@ -208,4 +207,41 @@ func (lbg *LoadBalancerGroup) GetAllGroups() []string {
 	}
 	lbg.lock.RUnlock()
 	return groups
+}
+
+// GetEndpoints returns all the endpoints of the given group.
+//
+// Notice: for obtaining the real endpoint, you should call the method Unwrap()
+// of the returned endpoints.
+func (lbg *LoadBalancerGroup) GetEndpoints(group string) (eps Endpoints) {
+	lbg.lock.RLock()
+	if lbw, ok := lbg.lbs[group]; ok {
+		eps = make(Endpoints, 0, len(lbw.Endpoints))
+		for _, ep := range lbw.Endpoints {
+			healthy := lbw.LoadBalancer.IsActive(ep)
+			eps = append(eps, statusEnpoind{Endpoint: ep, healthy: healthy})
+		}
+	}
+	lbg.lock.RUnlock()
+	return
+}
+
+// GetAllEndpoints returns all the endpoints of all the group.
+//
+// Notice: for obtaining the real endpoint, you should call the method Unwrap()
+// of the returned endpoints.
+func (lbg *LoadBalancerGroup) GetAllEndpoints() (epms map[string]Endpoints) {
+	lbg.lock.RLock()
+	epms = make(map[string]Endpoints)
+	for _, lbw := range lbg.lbs {
+		eps := make(Endpoints, 0, len(lbw.Endpoints))
+		for _, ep := range lbw.Endpoints {
+			healthy := lbw.LoadBalancer.IsActive(ep)
+			eps = append(eps, statusEnpoind{Endpoint: ep, healthy: healthy})
+		}
+		epms[lbw.Group] = eps
+	}
+
+	lbg.lock.RUnlock()
+	return
 }
