@@ -39,7 +39,7 @@ type failRetry struct {
 func (r failRetry) String() string                       { return r.name }
 func (r failRetry) Next(total, current, retried int) int { return r.next(total, current, retried) }
 
-// FailRetryFunc converts a function with the name to
+// FailRetryFunc converts a function with the name to FailRetry.
 func FailRetryFunc(name string, next func(total, current, retried int) (next int)) FailRetry {
 	return failRetry{name: name, next: next}
 }
