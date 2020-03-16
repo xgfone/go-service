@@ -114,6 +114,17 @@ func (es Endpoints) Less(i, j int) bool {
 	return es[i].String() < es[j].String()
 }
 
+// In reports whether the endpoint is in the endpoints.
+func (es Endpoints) In(endpoint Endpoint) bool {
+	eps := endpoint.String()
+	for _, ep := range es {
+		if ep.String() == eps {
+			return true
+		}
+	}
+	return false
+}
+
 // HealthChecker is used to check the health status of an endpoint.
 type HealthChecker func(context.Context, Endpoint) error
 
