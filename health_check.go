@@ -26,7 +26,22 @@ type endpointWrapper struct {
 	Timeout  time.Duration
 	Interval time.Duration
 	Endpoint Endpoint
-	Health   bool
+
+	health bool
+	lock   sync.RWMutex
+}
+
+func (epw *endpointWrapper) IsHealthy() bool {
+	epw.lock.RLock()
+	ok := epw.health
+	epw.lock.RUnlock()
+	return ok
+}
+
+func (epw *endpointWrapper) SetHealthy(healthy bool) {
+	epw.lock.Lock()
+	epw.health = healthy
+	epw.lock.Unlock()
 }
 
 type endpointOp struct {
@@ -184,10 +199,20 @@ func (hc *HealthCheck) Endpoints() Endpoints {
 	hc.lock.RLock()
 	eps := make(Endpoints, 0, len(hc.endpoints))
 	for _, ep := range hc.endpoints {
-		eps = append(eps, statusEnpoind{Endpoint: ep.Endpoint, healthy: ep.Health})
+		eps = append(eps, statusEnpoind{Endpoint: ep.Endpoint, healthy: ep.IsHealthy()})
 	}
 	hc.lock.RUnlock()
 	return eps
+}
+
+// IsHealthy reports whether the endpoint is healthy.
+func (hc *HealthCheck) IsHealthy(endpoint string) (yes bool) {
+	hc.lock.RLock()
+	if ep, ok := hc.endpoints[endpoint]; ok {
+		yes = ep.IsHealthy()
+	}
+	hc.lock.RUnlock()
+	return
 }
 
 // HasEndpoint reports whether the endpoint has added.
@@ -284,8 +309,8 @@ func (hc *HealthCheck) checkEndpoint(ew *endpointWrapper) {
 	ctx, cancel := hc.getContext(ew)
 	defer cancel()
 
-	if health := ew.Endpoint.IsHealthy(ctx); health != ew.Health {
-		ew.Health = health
+	if health := ew.Endpoint.IsHealthy(ctx); health != ew.IsHealthy() {
+		ew.SetHealthy(health)
 		if health {
 			hc.updatech <- endpointOp{Add: true, Endpoint: ew.Endpoint}
 		} else {
