@@ -190,16 +190,19 @@ func (hc *HealthCheck) Endpoints() Endpoints {
 	return eps
 }
 
+// HasEndpoint reports whether the endpoint has added.
+func (hc *HealthCheck) HasEndpoint(endpoint Endpoint) bool {
+	addr := endpoint.String()
+	hc.lock.RLock()
+	_, ok := hc.endpoints[addr]
+	hc.lock.RUnlock()
+	return ok
+}
+
 // AddEndpoint add the endpoint to check its health status.
 func (hc *HealthCheck) AddEndpoint(ep Endpoint, interval, timeout time.Duration) {
-	ew := &endpointWrapper{
-		Exit:     make(chan struct{}),
-		Timeout:  timeout,
-		Interval: interval,
-		Endpoint: ep,
-	}
-
 	addr := ep.String()
+
 	hc.lock.Lock()
 	if epw, ok := hc.endpoints[addr]; ok {
 		if epw.Endpoint == ep {
@@ -208,8 +211,16 @@ func (hc *HealthCheck) AddEndpoint(ep Endpoint, interval, timeout time.Duration)
 		}
 		close(epw.Exit)
 	}
+
+	ew := &endpointWrapper{
+		Exit:     make(chan struct{}),
+		Timeout:  timeout,
+		Interval: interval,
+		Endpoint: ep,
+	}
 	hc.endpoints[addr] = ew
 	hc.lock.Unlock()
+
 	go hc.check(ew)
 }
 
