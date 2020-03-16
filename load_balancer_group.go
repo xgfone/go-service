@@ -16,6 +16,7 @@ package service
 
 import (
 	"sync"
+	"time"
 )
 
 type groupT = string
@@ -36,8 +37,7 @@ type LoadBalancerGroup struct {
 	// It returns NewLoadBalancer(nil) by default.
 	NewLoadBalancer func(group string) *LoadBalancer
 
-	// OnEndpoint is used to notice someone, such as Updater, that an endpoint
-	// is added or deleted.
+	// OnEndpoint is used to notice someone that an endpoint is added or deleted.
 	//
 	// If nil, it does nothing.
 	OnEndpoint Updater
@@ -46,6 +46,10 @@ type LoadBalancerGroup struct {
 	lock    sync.RWMutex
 	lbs     map[groupT]*loadBalancerWrapper
 	eps     map[endpointT]*endpoint2lbsWrapper
+
+	hc         *HealthCheck
+	hcTimeout  time.Duration
+	hcInterval time.Duration
 }
 
 // NewLoadBalancerGroup returns a new LoadBalancerGroup.
@@ -90,6 +94,40 @@ func (lbg *LoadBalancerGroup) updateEndpoint(add bool, endpoint Endpoint) {
 	}
 }
 
+func (lbg *LoadBalancerGroup) noticeAddEndpoint(endpoint Endpoint) {
+	if lbg.OnEndpoint != nil {
+		lbg.OnEndpoint.AddEndpoint(endpoint)
+	}
+	if lbg.hc != nil {
+		lbg.hc.AddEndpoint(endpoint, lbg.hcInterval, lbg.hcTimeout)
+	}
+}
+func (lbg *LoadBalancerGroup) noticeDelEndpoint(endpoint Endpoint) {
+	if lbg.OnEndpoint != nil {
+		lbg.OnEndpoint.DelEndpoint(endpoint)
+	}
+	if lbg.hc != nil {
+		lbg.hc.DelEndpoint(endpoint)
+	}
+}
+
+// SetHealthCheck sets the HealthCheck to hc. If hc is nil, it will unset it.
+//
+// If not nil, it will use it to maintain the statuses of all the endpoints.
+func (lbg *LoadBalancerGroup) SetHealthCheck(hc *HealthCheck, interval, timeout time.Duration) {
+	lbg.lock.Lock()
+	defer lbg.lock.Unlock()
+
+	if lbg.hc != nil {
+		lbg.hc.UnsubscribeByUpdater(lbg.updater)
+	}
+
+	hc.AddUpdater(lbg.updater)
+	lbg.hcInterval = interval
+	lbg.hcTimeout = timeout
+	lbg.hc = hc
+}
+
 // Updater returns an Updater to update the endpoint.
 //
 // Notice: the Provider of LoadBalancer must have implemented the interface
@@ -116,10 +154,8 @@ func (lbg *LoadBalancerGroup) DelGroup(group string) (endpoints Endpoints) {
 	}
 	lbg.lock.Unlock()
 
-	if lbg.OnEndpoint != nil && len(endpoints) > 0 {
-		for _, ep := range endpoints {
-			lbg.OnEndpoint.DelEndpoint(ep)
-		}
+	for _, ep := range endpoints {
+		lbg.noticeDelEndpoint(ep)
 	}
 	return
 }
@@ -157,9 +193,7 @@ func (lbg *LoadBalancerGroup) AddEndpoint(group string, endpoint Endpoint) {
 	}
 	lbg.lock.Unlock()
 
-	if lbg.OnEndpoint != nil {
-		lbg.OnEndpoint.AddEndpoint(endpoint)
-	}
+	lbg.noticeAddEndpoint(endpoint)
 }
 
 func (lbg *LoadBalancerGroup) delEndpoint(endpoint string) bool {
@@ -179,8 +213,8 @@ func (lbg *LoadBalancerGroup) delEndpoint(endpoint string) bool {
 	}
 	lbg.lock.Unlock()
 
-	if ep != nil && lbg.OnEndpoint != nil {
-		lbg.OnEndpoint.DelEndpoint(ep)
+	if ep != nil {
+		lbg.noticeDelEndpoint(ep)
 		return true
 	}
 	return false

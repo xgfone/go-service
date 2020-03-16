@@ -28,13 +28,19 @@ func ExampleLoadBalancerGroup() {
 	ep5 := NewNoopEndpoint("127.0.0.1:8005")
 
 	hc := NewHealthCheck()
+	defer hc.Stop()
+
 	lbg := NewLoadBalancerGroup()
-	hc.AddUpdater(lbg.Updater())
+	lbg.SetHealthCheck(hc, time.Millisecond*10, time.Second)
 	lbg.OnEndpoint = UpdaterFunc(func(add bool, ep Endpoint) {
+		if hc.HasEndpoint(ep) {
+			return
+		}
+
 		if add {
-			hc.AddEndpoint(ep, time.Millisecond*10, 0)
+			fmt.Printf("Add the endpoint '%s'\n", ep.String())
 		} else {
-			hc.DelEndpoint(ep)
+			fmt.Printf("Delete the endpoint '%s'\n", ep.String())
 		}
 	})
 
@@ -89,6 +95,11 @@ func ExampleLoadBalancerGroup() {
 	}
 
 	// Output:
+	// Add the endpoint '127.0.0.1:8001'
+	// Add the endpoint '127.0.0.1:8002'
+	// Add the endpoint '127.0.0.1:8003'
+	// Add the endpoint '127.0.0.1:8004'
+	// Add the endpoint '127.0.0.1:8005'
 	// [group1 group2 group3]
 	// group1: [127.0.0.1:8001 127.0.0.1:8002 127.0.0.1:8003]
 	// group2: [127.0.0.1:8002 127.0.0.1:8003 127.0.0.1:8004]
