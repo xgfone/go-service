@@ -38,10 +38,6 @@ func ExampleLoadBalancerGroup() {
 		}
 	})
 
-	lbg.AddGroup("group1")
-	lbg.AddGroup("group2")
-	lbg.AddGroup("group3")
-
 	lbg.AddEndpoint("group1", ep1)
 	lbg.AddEndpoint("group1", ep2)
 	lbg.AddEndpoint("group1", ep3)
@@ -87,7 +83,7 @@ func ExampleLoadBalancerGroup() {
 	}
 	sort.Strings(ss)
 	for _, ep := range ss {
-		for group := range lbg.eps[ep] {
+		for group := range lbg.eps[ep].LoadBalancers {
 			fmt.Printf("Endpoint(%s) -> Group(%s)\n", ep, group)
 		}
 	}

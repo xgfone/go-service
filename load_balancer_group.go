@@ -20,8 +20,11 @@ import (
 
 type groupT = string
 type endpointT = string
+type endpoint2lbsWrapper struct {
+	Endpoint      Endpoint
+	LoadBalancers map[groupT]*loadBalancerWrapper
+}
 type loadBalancerWrapper struct {
-	Group        string
 	Endpoints    map[string]Endpoint
 	LoadBalancer *LoadBalancer
 }
@@ -42,18 +45,30 @@ type LoadBalancerGroup struct {
 	updater Updater
 	lock    sync.RWMutex
 	lbs     map[groupT]*loadBalancerWrapper
-	eps     map[endpointT]map[groupT]*loadBalancerWrapper
+	eps     map[endpointT]*endpoint2lbsWrapper
 }
 
 // NewLoadBalancerGroup returns a new LoadBalancerGroup.
 func NewLoadBalancerGroup() *LoadBalancerGroup {
 	lbg := LoadBalancerGroup{
 		lbs: make(map[groupT]*loadBalancerWrapper, 16),
-		eps: make(map[endpointT]map[groupT]*loadBalancerWrapper, 32),
+		eps: make(map[endpointT]*endpoint2lbsWrapper, 32),
 	}
 	lbg.updater = UpdaterFunc(lbg.updateEndpoint)
-	lbg.NewLoadBalancer = func(string) *LoadBalancer { return NewLoadBalancer(nil) }
 	return &lbg
+}
+
+func (lbg *LoadBalancerGroup) newLoadBalancer(group string) (lb *LoadBalancer) {
+	if lbg.NewLoadBalancer != nil {
+		lb = lbg.newLoadBalancer(group)
+	} else {
+		lb = NewLoadBalancer(nil)
+	}
+
+	if lb.Name == "" {
+		lb.Name = group
+	}
+	return
 }
 
 func (lbg *LoadBalancerGroup) updateEndpoint(add bool, endpoint Endpoint) {
@@ -62,13 +77,13 @@ func (lbg *LoadBalancerGroup) updateEndpoint(add bool, endpoint Endpoint) {
 	lbg.lock.RLock()
 	defer lbg.lock.RUnlock()
 
-	if lbws, ok := lbg.eps[ep]; ok && len(lbws) > 0 {
+	if lbws, ok := lbg.eps[ep]; ok && len(lbws.LoadBalancers) > 0 {
 		if add {
-			for _, lbw := range lbws {
+			for _, lbw := range lbws.LoadBalancers {
 				lbw.LoadBalancer.EndpointManager().AddEndpoint(endpoint)
 			}
 		} else {
-			for _, lbw := range lbws {
+			for _, lbw := range lbws.LoadBalancers {
 				lbw.LoadBalancer.EndpointManager().DelEndpointByString(ep)
 			}
 		}
@@ -81,23 +96,6 @@ func (lbg *LoadBalancerGroup) updateEndpoint(add bool, endpoint Endpoint) {
 // ProviderEndpointManager.
 func (lbg *LoadBalancerGroup) Updater() Updater { return lbg.updater }
 
-// AddGroup adds the LoadBalancer group, and the group will associate
-// LoadBalancer and Endpoint together.
-//
-// Notice: the group has existed, it does nothing and returns false.
-// Or, create a new LoadBalancer with the group and return true..
-func (lbg *LoadBalancerGroup) AddGroup(group string) bool {
-	lbg.lock.Lock()
-	_, ok := lbg.lbs[group]
-	if !ok {
-		lb := lbg.NewLoadBalancer(group)
-		eps := make(map[string]Endpoint, 8)
-		lbg.lbs[group] = &loadBalancerWrapper{Group: group, Endpoints: eps, LoadBalancer: lb}
-	}
-	lbg.lock.Unlock()
-	return !ok
-}
-
 // DelGroup deletes the LoadBalancer group and returns the unused endpoints,
 // which should be removed from the centralized health checker.
 func (lbg *LoadBalancerGroup) DelGroup(group string) (endpoints Endpoints) {
@@ -107,9 +105,9 @@ func (lbg *LoadBalancerGroup) DelGroup(group string) (endpoints Endpoints) {
 		delete(lbg.lbs, group)
 		for ep, endpoint := range lbw.Endpoints {
 			// lbw.LoadBalancer.EndpointManager().DelEndpointByString(ep)
-			if eps, ok := lbg.eps[ep]; ok {
-				delete(eps, group)
-				if len(eps) == 0 {
+			if lbws, ok := lbg.eps[ep]; ok {
+				delete(lbws.LoadBalancers, group)
+				if len(lbws.LoadBalancers) == 0 {
 					delete(lbg.eps, ep)
 					endpoints = append(endpoints, endpoint)
 				}
@@ -126,62 +124,80 @@ func (lbg *LoadBalancerGroup) DelGroup(group string) (endpoints Endpoints) {
 	return
 }
 
-// AddEndpoint associates the endpoint with the group and reports whether it is
-// successful.
-func (lbg *LoadBalancerGroup) AddEndpoint(group string, endpoint Endpoint) bool {
+func (lbg *LoadBalancerGroup) getOrNewGroup(group string) *loadBalancerWrapper {
+	lbw, ok := lbg.lbs[group]
+	if !ok {
+		lb := lbg.newLoadBalancer(group)
+		eps := make(map[string]Endpoint, 8)
+		lbw = &loadBalancerWrapper{Endpoints: eps, LoadBalancer: lb}
+		lbg.lbs[group] = lbw
+	}
+	return lbw
+}
+
+// AddEndpoint associates the endpoint with the group.
+//
+// If the group does not exist, it will be created automatically.
+func (lbg *LoadBalancerGroup) AddEndpoint(group string, endpoint Endpoint) {
 	ep := endpoint.String()
 
 	lbg.lock.Lock()
-	lbw, ok := lbg.lbs[group]
-	if ok {
-		lbw.Endpoints[ep] = endpoint
-		if lbws, ok := lbg.eps[ep]; ok {
-			if _lbw, ok := lbws[group]; ok {
-				if _lbw != lbw {
-					lbg.lock.Unlock()
-					panic("LoadBalancerGroup: invalid reference relationship")
-				}
-			} else {
-				lbws[group] = lbw
-			}
-		} else {
-			lbg.eps[ep] = map[string]*loadBalancerWrapper{group: lbw}
+	lbw := lbg.getOrNewGroup(group)
+	lbw.Endpoints[ep] = endpoint
+	if lbws, ok := lbg.eps[ep]; !ok {
+		lbg.eps[ep] = &endpoint2lbsWrapper{
+			Endpoint:      endpoint,
+			LoadBalancers: map[string]*loadBalancerWrapper{group: lbw},
 		}
+	} else if _lbw, ok := lbws.LoadBalancers[group]; !ok {
+		lbws.LoadBalancers[group] = lbw
+	} else if _lbw != lbw {
+		lbg.lock.Unlock()
+		panic("LoadBalancerGroup: invalid reference relationship")
 	}
 	lbg.lock.Unlock()
 
-	if ok && lbg.OnEndpoint != nil {
+	if lbg.OnEndpoint != nil {
 		lbg.OnEndpoint.AddEndpoint(endpoint)
 	}
-	return ok
 }
 
-// DelEndpoint unassociates the endpoints from the group and reports whether it is
-// successful.
-func (lbg *LoadBalancerGroup) DelEndpoint(endpoint Endpoint) bool {
-	ep := endpoint.String()
+func (lbg *LoadBalancerGroup) delEndpoint(endpoint string) bool {
+	var ep Endpoint
 	lbg.lock.Lock()
-	lbws, ok := lbg.eps[ep]
-	if ok {
-		delete(lbg.eps, ep)
-		for _, lbw := range lbws {
-			delete(lbw.Endpoints, ep)
-			lbw.LoadBalancer.EndpointManager().DelEndpointByString(ep)
+	if lbws, ok := lbg.eps[endpoint]; ok {
+		ep = lbws.Endpoint
+		delete(lbg.eps, endpoint)
+		for _, lbw := range lbws.LoadBalancers {
+			delete(lbw.Endpoints, endpoint)
+			if len(lbw.Endpoints) == 0 {
+				delete(lbg.lbs, lbw.LoadBalancer.Name)
+			} else {
+				lbw.LoadBalancer.EndpointManager().DelEndpointByString(endpoint)
+			}
 		}
 	}
 	lbg.lock.Unlock()
 
-	if ok && lbg.OnEndpoint != nil {
-		lbg.OnEndpoint.DelEndpoint(endpoint)
+	if ep != nil && lbg.OnEndpoint != nil {
+		lbg.OnEndpoint.DelEndpoint(ep)
+		return true
 	}
-	return ok
+	return false
 }
 
-// DelEndpointByString deletes the endpoints from all LoadBalancers.
+// DelEndpoint is equal to DelEndpointByString(endpoint.String()).
+func (lbg *LoadBalancerGroup) DelEndpoint(endpoint Endpoint) bool {
+	return lbg.delEndpoint(endpoint.String())
+}
+
+// DelEndpointByString deletes the endpoints from all the LoadBalancer groups
+// and reports whether it is deleted really, that's, there is no LoadBalancer
+// group to refer to it.
 //
-// Notice: If you can, use DelEndpoint instead.
+// Notice: If a LoadBalancer group has no any endpoints, it will be deleted.
 func (lbg *LoadBalancerGroup) DelEndpointByString(endpoint string) bool {
-	return lbg.DelEndpoint(NewNoopEndpoint(endpoint))
+	return lbg.delEndpoint(endpoint)
 }
 
 // GetLoadBalancer returns the LoadBalancer by the group name.
@@ -226,7 +242,7 @@ func (lbg *LoadBalancerGroup) GetEndpoints(group string) (eps Endpoints) {
 	return
 }
 
-// GetAllEndpoints returns all the endpoints of all the group.
+// GetAllEndpoints returns all the endpoints of all the groups.
 //
 // Notice: for obtaining the real endpoint, you should call the method Unwrap()
 // of the returned endpoints.
@@ -239,9 +255,8 @@ func (lbg *LoadBalancerGroup) GetAllEndpoints() (epms map[string]Endpoints) {
 			healthy := lbw.LoadBalancer.IsActive(ep)
 			eps = append(eps, statusEnpoind{Endpoint: ep, healthy: healthy})
 		}
-		epms[lbw.Group] = eps
+		epms[lbw.LoadBalancer.Name] = eps
 	}
-
 	lbg.lock.RUnlock()
 	return
 }
