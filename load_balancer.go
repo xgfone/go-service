@@ -32,6 +32,10 @@ var (
 type LoadBalancer struct {
 	Provider
 
+	// Name is the name of LoadBalancer, which may be a set of the arbitrary
+	// characters, such as an address.
+	Name string
+
 	// Session is used to manage the session stick, which is based on memory.
 	// But it can be set to nil to disable it.
 	Session SessionManager
