@@ -15,6 +15,7 @@
 package service
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -94,20 +95,25 @@ func (lbg *LoadBalancerGroup) updateEndpoint(add bool, endpoint Endpoint) {
 	}
 }
 
-func (lbg *LoadBalancerGroup) noticeAddEndpoint(endpoint Endpoint) {
+func (lbg *LoadBalancerGroup) noticeAddEndpoint(lbw *loadBalancerWrapper,
+	hc *HealthCheck, ep Endpoint, interval, timeout time.Duration) {
 	if lbg.OnEndpoint != nil {
-		lbg.OnEndpoint.AddEndpoint(endpoint)
+		lbg.OnEndpoint.AddEndpoint(ep)
 	}
-	if lbg.hc != nil {
-		lbg.hc.AddEndpoint(endpoint, lbg.hcInterval, lbg.hcTimeout)
+	if hc != nil {
+		hc.AddEndpoint(ep, interval, timeout)
+		if hc.IsHealthy(ep.String()) && !lbw.LoadBalancer.IsActive(ep) {
+			lbw.LoadBalancer.EndpointManager().AddEndpoint(ep)
+		}
 	}
 }
-func (lbg *LoadBalancerGroup) noticeDelEndpoint(endpoint Endpoint) {
+
+func (lbg *LoadBalancerGroup) noticeDelEndpoint(hc *HealthCheck, endpoint Endpoint) {
 	if lbg.OnEndpoint != nil {
 		lbg.OnEndpoint.DelEndpoint(endpoint)
 	}
-	if lbg.hc != nil {
-		lbg.hc.DelEndpoint(endpoint)
+	if hc != nil {
+		hc.DelEndpoint(endpoint)
 	}
 }
 
@@ -152,10 +158,11 @@ func (lbg *LoadBalancerGroup) DelGroup(group string) (endpoints Endpoints) {
 			}
 		}
 	}
+	hc := lbg.hc
 	lbg.lock.Unlock()
 
 	for _, ep := range endpoints {
-		lbg.noticeDelEndpoint(ep)
+		lbg.noticeDelEndpoint(hc, ep)
 	}
 	return
 }
@@ -191,9 +198,12 @@ func (lbg *LoadBalancerGroup) AddEndpoint(group string, endpoint Endpoint) {
 		lbg.lock.Unlock()
 		panic("LoadBalancerGroup: invalid reference relationship")
 	}
+	hc := lbg.hc
+	timeout := lbg.hcTimeout
+	interval := lbg.hcInterval
 	lbg.lock.Unlock()
 
-	lbg.noticeAddEndpoint(endpoint)
+	lbg.noticeAddEndpoint(lbw, hc, endpoint, interval, timeout)
 }
 
 func (lbg *LoadBalancerGroup) delEndpoint(endpoint string) bool {
@@ -211,10 +221,11 @@ func (lbg *LoadBalancerGroup) delEndpoint(endpoint string) bool {
 			}
 		}
 	}
+	hc := lbg.hc
 	lbg.lock.Unlock()
 
 	if ep != nil {
-		lbg.noticeDelEndpoint(ep)
+		lbg.noticeDelEndpoint(hc, ep)
 		return true
 	}
 	return false
@@ -268,8 +279,7 @@ func (lbg *LoadBalancerGroup) GetEndpoints(group string) (eps Endpoints) {
 	if lbw, ok := lbg.lbs[group]; ok {
 		eps = make(Endpoints, 0, len(lbw.Endpoints))
 		for _, ep := range lbw.Endpoints {
-			healthy := lbw.LoadBalancer.IsActive(ep)
-			eps = append(eps, statusEnpoind{Endpoint: ep, healthy: healthy})
+			eps = append(eps, statusEndpoint{Endpoint: ep, IsActive: lbw.LoadBalancer.IsActive})
 		}
 	}
 	lbg.lock.RUnlock()
@@ -286,11 +296,18 @@ func (lbg *LoadBalancerGroup) GetAllEndpoints() (epms map[string]Endpoints) {
 	for _, lbw := range lbg.lbs {
 		eps := make(Endpoints, 0, len(lbw.Endpoints))
 		for _, ep := range lbw.Endpoints {
-			healthy := lbw.LoadBalancer.IsActive(ep)
-			eps = append(eps, statusEnpoind{Endpoint: ep, healthy: healthy})
+			eps = append(eps, statusEndpoint{Endpoint: ep, IsActive: lbw.LoadBalancer.IsActive})
 		}
 		epms[lbw.LoadBalancer.Name] = eps
 	}
 	lbg.lock.RUnlock()
 	return
 }
+
+type statusEndpoint struct {
+	Endpoint
+	IsActive func(Endpoint) bool
+}
+
+func (se statusEndpoint) Unwrap() Endpoint               { return se.Endpoint }
+func (se statusEndpoint) IsHealthy(context.Context) bool { return se.IsActive(se.Endpoint) }

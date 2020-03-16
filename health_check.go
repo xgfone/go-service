@@ -22,16 +22,19 @@ import (
 )
 
 type endpointWrapper struct {
+	Endpoint
+
 	Exit     chan struct{}
 	Timeout  time.Duration
 	Interval time.Duration
-	Endpoint Endpoint
 
 	health bool
 	lock   sync.RWMutex
 }
 
-func (epw *endpointWrapper) IsHealthy() bool {
+func (epw *endpointWrapper) Unwrap() Endpoint { return epw.Endpoint }
+
+func (epw *endpointWrapper) IsHealthy(context.Context) bool {
 	epw.lock.RLock()
 	ok := epw.health
 	epw.lock.RUnlock()
@@ -186,20 +189,12 @@ func (hc *HealthCheck) UnsubscribeByUpdater(updater Updater) {
 	}
 }
 
-type statusEnpoind struct {
-	Endpoint
-	healthy bool
-}
-
-func (se statusEnpoind) Unwrap() Endpoint               { return se.Endpoint }
-func (se statusEnpoind) IsHealthy(context.Context) bool { return se.healthy }
-
-// Endpoints returns the copy of all the endpoints, which cannot be cached.
+// Endpoints returns the copy of all the endpoints.
 func (hc *HealthCheck) Endpoints() Endpoints {
 	hc.lock.RLock()
 	eps := make(Endpoints, 0, len(hc.endpoints))
 	for _, ep := range hc.endpoints {
-		eps = append(eps, statusEnpoind{Endpoint: ep.Endpoint, healthy: ep.IsHealthy()})
+		eps = append(eps, ep)
 	}
 	hc.lock.RUnlock()
 	return eps
@@ -209,7 +204,7 @@ func (hc *HealthCheck) Endpoints() Endpoints {
 func (hc *HealthCheck) IsHealthy(endpoint string) (yes bool) {
 	hc.lock.RLock()
 	if ep, ok := hc.endpoints[endpoint]; ok {
-		yes = ep.IsHealthy()
+		yes = ep.IsHealthy(context.TODO())
 	}
 	hc.lock.RUnlock()
 	return
@@ -309,7 +304,7 @@ func (hc *HealthCheck) checkEndpoint(ew *endpointWrapper) {
 	ctx, cancel := hc.getContext(ew)
 	defer cancel()
 
-	if health := ew.Endpoint.IsHealthy(ctx); health != ew.IsHealthy() {
+	if health := ew.Endpoint.IsHealthy(ctx); health != ew.IsHealthy(context.TODO()) {
 		ew.SetHealthy(health)
 		if health {
 			hc.updatech <- endpointOp{Add: true, Endpoint: ew.Endpoint}
