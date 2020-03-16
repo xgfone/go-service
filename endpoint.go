@@ -114,8 +114,8 @@ func (es Endpoints) Less(i, j int) bool {
 	return es[i].String() < es[j].String()
 }
 
-// In reports whether the endpoint is in the endpoints.
-func (es Endpoints) In(endpoint Endpoint) bool {
+// Contains reports whether the endpoints contains the endpoint.
+func (es Endpoints) Contains(endpoint Endpoint) bool {
 	eps := endpoint.String()
 	for _, ep := range es {
 		if ep.String() == eps {
