@@ -5,11 +5,14 @@ A service library, such as LoadBalancer, HealthCheck or Retry, support `Go1.9+`.
 - 1 [Installation](#1-installation)
 - 2 [Example](#2-example)
     - 2.1 [`Client` Mode](#21-client-mode)
-       - 2.1.1 [For HTTP Client](#211-for-http-client)
-       - 2.1.2 [For TCP Client](#212-for-tcp-client)
+        - 2.1.1 [For HTTP Client](#211-for-http-client)
+	        - 2.1.1.1 [Example 1](#2111-example-1)
+			- 2.1.1.2 [Example 2](#2112-example-2)
+			- 2.1.1.3 [Example 3](#2113-example-3)
+        - 2.1.2 [For TCP Client](#212-for-tcp-client)
     - 2.2 [`Proxy` Mode](#22-proxy-mode)
-       - 2.2.1 [For HTTP Proxy](#221-for-http-Proxy)
-       - 2.2.2 [For TCP Proxy](#222-for-tcp-Proxy)
+        - 2.2.1 [For HTTP Proxy](#221-for-http-Proxy)
+        - 2.2.2 [For TCP Proxy](#222-for-tcp-Proxy)
 
 
 ## 1. Installation
@@ -22,6 +25,8 @@ $ go get -u github.com/xgfone/go-service
 ### 2.1 `Client` Mode
 
 #### 2.1.1 For HTTP Client
+
+##### 2.1.1.1 Example 1
 ```go
 package main
 
@@ -98,6 +103,7 @@ func main() {
 }
 ```
 
+##### 2.1.1.2 Example 2
 Or, you can use it implicitly. For example,
 ```go
 package main
@@ -155,6 +161,69 @@ func main() {
 
 	// 127.0.0.1:8000 won't be replaced, and it will send the request to 127.0.0.1:8000 directly.
 	resp, err = http.Get("http://127.0.0.1:8000")
+	printResponse(resp, err)
+}
+```
+
+##### 2.1.1.3 Example 3
+```go
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/xgfone/go-service"
+)
+
+func initProxy(hc *service.HealthCheck) {
+	endpoint1 := service.NewHTTPEndpoint("192.168.1.1:80", nil)
+	endpoint2 := service.NewHTTPEndpoint("192.168.1.1:80", nil)
+	endpoint3 := service.NewHTTPEndpoint("192.168.1.1:80", nil)
+
+	lb := service.NewLoadBalancerGroup()
+	lb.SetHealthCheck(hc, time.Second*5, time.Second)
+	lb.AddEndpoint("app1", endpoint1)
+	lb.AddEndpoint("app1", endpoint2)
+	lb.AddEndpoint("app2", endpoint2)
+	lb.AddEndpoint("app2", endpoint3)
+
+	http.DefaultClient.Transport = service.ToHTTPRoundTripper(lb.GetRoundTripper)
+}
+
+func printResponse(resp *http.Response, err error) {
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Printf("URL: %s\n", resp.Request.URL.String())
+
+	buf := bytes.NewBuffer(nil)
+	io.CopyN(buf, resp.Body, resp.ContentLength)
+	resp.Body.Close()
+
+	fmt.Println("StatusCode:", resp.StatusCode)
+	fmt.Println("Body:", buf.String())
+}
+
+func main() {
+	hc := service.NewHealthCheck()
+	defer hc.Stop()
+	initProxy(hc)
+
+	// Wait to check the health status of all end endpoints.
+	time.Sleep(time.Second)
+
+	// app1 will be replaced with one of 192.168.1.1:80, 192.168.1.2:80.
+	resp, err := http.Get("http://app1")
+	printResponse(resp, err)
+
+	// 127.0.0.1 won't be replaced, and it will send the request to 127.0.0.1 directly.
+	resp, err = http.Get("http://127.0.0.1")
 	printResponse(resp, err)
 }
 ```
