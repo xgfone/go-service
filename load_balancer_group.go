@@ -245,6 +245,14 @@ func (lbg *LoadBalancerGroup) DelEndpointByString(endpoint string) bool {
 	return lbg.delEndpoint(endpoint)
 }
 
+// GetRoundTripper is the same as GetLoadBalancer, but returns the RoundTripper.
+func (lbg *LoadBalancerGroup) GetRoundTripper(group string) RoundTripper {
+	if lb := lbg.GetLoadBalancer(group); lb != nil {
+		return lb
+	}
+	return nil
+}
+
 // GetLoadBalancer returns the LoadBalancer by the group name.
 //
 // Return nil if the group does not exist.
