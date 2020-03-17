@@ -221,27 +221,21 @@ func (hc *HealthCheck) HasEndpoint(endpoint Endpoint) bool {
 
 // AddEndpoint add the endpoint to check its health status.
 func (hc *HealthCheck) AddEndpoint(ep Endpoint, interval, timeout time.Duration) {
+	var ew *endpointWrapper
 	addr := ep.String()
 
 	hc.lock.Lock()
-	if epw, ok := hc.endpoints[addr]; ok {
-		if epw.Endpoint == ep {
-			hc.lock.Unlock()
-			return
+	if _, ok := hc.endpoints[addr]; !ok {
+		ew = &endpointWrapper{
+			Exit:     make(chan struct{}),
+			Timeout:  timeout,
+			Interval: interval,
+			Endpoint: ep,
 		}
-		close(epw.Exit)
+		hc.endpoints[addr] = ew
+		go hc.check(ew)
 	}
-
-	ew := &endpointWrapper{
-		Exit:     make(chan struct{}),
-		Timeout:  timeout,
-		Interval: interval,
-		Endpoint: ep,
-	}
-	hc.endpoints[addr] = ew
 	hc.lock.Unlock()
-
-	go hc.check(ew)
 }
 
 // DelEndpoint deletes the endpoint in order not to monitor it.
