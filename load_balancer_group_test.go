@@ -94,6 +94,11 @@ func ExampleLoadBalancerGroup() {
 		}
 	}
 
+	lbg.DelEndpointFromGroup("group1", ep1)
+	lbg.DelEndpointFromGroup("group1", ep3)
+	fmt.Println(lbg.GetAllGroups())
+	fmt.Println(lbg.GetAllEndpoints())
+
 	// Output:
 	// Add the endpoint '127.0.0.1:8001'
 	// Add the endpoint '127.0.0.1:8002'
@@ -113,4 +118,6 @@ func ExampleLoadBalancerGroup() {
 	// [127.0.0.1:8001 127.0.0.1:8003]
 	// Endpoint(127.0.0.1:8001) -> Group(group1)
 	// Endpoint(127.0.0.1:8003) -> Group(group1)
+	// []
+	// map[]
 }

@@ -245,6 +245,45 @@ func (lbg *LoadBalancerGroup) DelEndpointByString(endpoint string) bool {
 	return lbg.delEndpoint(endpoint)
 }
 
+// DelEndpointFromGroup is the same as DelEndpointByStringFromGroup.
+func (lbg *LoadBalancerGroup) DelEndpointFromGroup(group string, endpoint Endpoint) {
+	lbg.DelEndpointByStringFromGroup(group, endpoint.String())
+}
+
+// DelEndpointByStringFromGroup is used to delete the endpoint only from the group.
+func (lbg *LoadBalancerGroup) DelEndpointByStringFromGroup(group, endpoint string) {
+	var ep Endpoint
+	lbg.lock.Lock()
+	if lbw, ok := lbg.lbs[group]; ok {
+		if _, ok := lbw.Endpoints[endpoint]; ok {
+			if len(lbw.Endpoints) == 1 {
+				delete(lbg.lbs, group)
+			} else {
+				delete(lbw.Endpoints, endpoint)
+				lbw.LoadBalancer.EndpointManager().DelEndpointByString(endpoint)
+			}
+		}
+
+		if lbws, ok := lbg.eps[endpoint]; ok {
+			if _, ok := lbws.LoadBalancers[group]; ok {
+				if len(lbws.LoadBalancers) == 1 {
+					delete(lbg.eps, endpoint)
+					ep = lbws.Endpoint
+				} else {
+					delete(lbws.LoadBalancers, group)
+				}
+			}
+		}
+	}
+
+	hc := lbg.hc
+	lbg.lock.Unlock()
+
+	if ep != nil {
+		lbg.noticeDelEndpoint(hc, ep)
+	}
+}
+
 // GetRoundTripper is the same as GetLoadBalancer, but returns the RoundTripper.
 func (lbg *LoadBalancerGroup) GetRoundTripper(group string) RoundTripper {
 	if lb := lbg.GetLoadBalancer(group); lb != nil {
