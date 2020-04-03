@@ -27,7 +27,7 @@ func TestGeneralProvider_ProviderEndpointManager(t *testing.T) {
 		}
 	}
 
-	p.DelEndpointByString("127.0.0.1:8002")
+	p.DelEndpoint(NewNoopEndpoint("127.0.0.1:8002"))
 	for i, ep := range p.Endpoints() {
 		switch i {
 		case 0:

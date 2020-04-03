@@ -45,7 +45,6 @@ type ProviderEndpointManager interface {
 	Endpoints() Endpoints
 	AddEndpoint(Endpoint)
 	DelEndpoint(Endpoint)
-	DelEndpointByString(endpoint string)
 }
 
 // ProviderSelector is used to manage the selector by the provider.
@@ -157,11 +156,11 @@ func (p *GeneralProvider) AddEndpoint(endpoint Endpoint) {
 
 // DelEndpoint deletes the endpoint.
 func (p *GeneralProvider) DelEndpoint(endpoint Endpoint) {
-	p.DelEndpointByString(endpoint.String())
+	p.delEndpointByString(endpoint.String())
 }
 
 // DelEndpointByString deletes the endpoint.
-func (p *GeneralProvider) DelEndpointByString(endpoint string) {
+func (p *GeneralProvider) delEndpointByString(endpoint string) {
 	var deleted Endpoint
 	var exist bool
 

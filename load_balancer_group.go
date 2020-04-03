@@ -89,7 +89,7 @@ func (lbg *LoadBalancerGroup) updateEndpoint(add bool, endpoint Endpoint) {
 			}
 		} else {
 			for _, lbw := range lbws.LoadBalancers {
-				lbw.LoadBalancer.EndpointManager().DelEndpointByString(ep)
+				lbw.LoadBalancer.EndpointManager().DelEndpoint(lbws.Endpoint)
 			}
 		}
 	}
@@ -148,7 +148,7 @@ func (lbg *LoadBalancerGroup) DelGroup(group string) (endpoints Endpoints) {
 	if lbw, ok := lbg.lbs[group]; ok {
 		delete(lbg.lbs, group)
 		for ep, endpoint := range lbw.Endpoints {
-			// lbw.LoadBalancer.EndpointManager().DelEndpointByString(ep)
+			// lbw.LoadBalancer.EndpointManager().DelEndpoint(endpoint)
 			if lbws, ok := lbg.eps[ep]; ok {
 				delete(lbws.LoadBalancers, group)
 				if len(lbws.LoadBalancers) == 0 {
@@ -217,7 +217,7 @@ func (lbg *LoadBalancerGroup) delEndpoint(endpoint string) bool {
 			if len(lbw.Endpoints) == 0 {
 				delete(lbg.lbs, lbw.LoadBalancer.Name)
 			} else {
-				lbw.LoadBalancer.EndpointManager().DelEndpointByString(endpoint)
+				lbw.LoadBalancer.EndpointManager().DelEndpoint(ep)
 			}
 		}
 	}
@@ -255,12 +255,12 @@ func (lbg *LoadBalancerGroup) DelEndpointByStringFromGroup(group, endpoint strin
 	var ep Endpoint
 	lbg.lock.Lock()
 	if lbw, ok := lbg.lbs[group]; ok {
-		if _, ok := lbw.Endpoints[endpoint]; ok {
+		if _ep, ok := lbw.Endpoints[endpoint]; ok {
 			if len(lbw.Endpoints) == 1 {
 				delete(lbg.lbs, group)
 			} else {
 				delete(lbw.Endpoints, endpoint)
-				lbw.LoadBalancer.EndpointManager().DelEndpointByString(endpoint)
+				lbw.LoadBalancer.EndpointManager().DelEndpoint(_ep)
 			}
 		}
 
