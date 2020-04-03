@@ -77,15 +77,6 @@ type ProviderEndpointGate interface {
 	DelEndpointGate(endpoint string)
 }
 
-// ProviderEndpointEvent is used to adds the callback of the endpoint events,
-// which will be called when the corresponding event occurs.
-type ProviderEndpointEvent interface {
-	OnAdd(func(Endpoint))
-	OnDelete(func(Endpoint))
-	OnSelect(func(Endpoint))
-	OnFinish(func(Endpoint))
-}
-
 // ProviderSelector is used to manage the selector by the provider.
 type ProviderSelector interface {
 	GetSelector() Selector
@@ -96,7 +87,6 @@ var (
 	_ Provider                = &GeneralProvider{}
 	_ ProviderSelector        = &GeneralProvider{}
 	_ ProviderEndpointGate    = &GeneralProvider{}
-	_ ProviderEndpointEvent   = &GeneralProvider{}
 	_ ProviderEndpointManager = &GeneralProvider{}
 )
 
@@ -108,11 +98,6 @@ type GeneralProvider struct {
 	endpoints Endpoints
 	epgates   []string
 	eplen     uint32
-
-	onAdds    *eventCallbacks
-	onDeletes *eventCallbacks
-	onSelects *eventCallbacks
-	onFinishs *eventCallbacks
 }
 
 // NewGeneralProvider returns a new GeneralProvider with the selector.
@@ -124,11 +109,6 @@ func NewGeneralProvider(selector Selector, endpoints ...Endpoint) *GeneralProvid
 	p := &GeneralProvider{
 		selector:  selector,
 		endpoints: make(Endpoints, 0, 8),
-
-		onAdds:    newEventCallbacks(),
-		onDeletes: newEventCallbacks(),
-		onSelects: newEventCallbacks(),
-		onFinishs: newEventCallbacks(),
 	}
 
 	p.addEndpoints(endpoints...)
@@ -219,8 +199,6 @@ func (p *GeneralProvider) AddEndpoint(endpoint Endpoint) {
 	if eps, ok := endpoint.(EndpointStatus); ok {
 		eps.Activate(context.Background())
 	}
-
-	p.onAdds.Call(endpoint)
 }
 
 // DelEndpoint deletes the endpoint.
@@ -252,8 +230,6 @@ func (p *GeneralProvider) DelEndpointByString(endpoint string) {
 	if eps, ok := deleted.(EndpointStatus); ok {
 		eps.Deactivate(context.Background())
 	}
-
-	p.onDeletes.Call(deleted)
 }
 
 // GetEndpointGates returns all the endpoints gates.
@@ -332,7 +308,6 @@ func (p *GeneralProvider) Select(req Request) (index int, endpoint Endpoint) {
 		endpoint = p.endpoints[index]
 	}
 	p.lock.RUnlock()
-	p.onSelects.Call(endpoint)
 	return
 }
 
@@ -350,42 +325,13 @@ func (p *GeneralProvider) SelectByIndex(index int) (realIndex int, endpoint Endp
 		endpoint = p.endpoints[realIndex]
 	}
 	p.lock.RUnlock()
-	p.onSelects.Call(endpoint)
 	return
 }
 
 // Hit should be called when the endpoint is cached and used again,
 // which is used to notice the provider that the endpoint is using.
-func (p *GeneralProvider) Hit(endpoint Endpoint) {
-	p.onSelects.Call(endpoint)
-}
+func (p *GeneralProvider) Hit(endpoint Endpoint) {}
 
 // Finish should be called when the endpoint has finished to handle the
 // request which is used to notice the provider that the endpoint is idle.
-func (p *GeneralProvider) Finish(endpoint Endpoint) {
-	p.onFinishs.Call(endpoint)
-}
-
-// OnAdd adds the callback function, which will be called when an endpoint
-// is added.
-func (p *GeneralProvider) OnAdd(f func(Endpoint)) {
-	p.onAdds.Append(f)
-}
-
-// OnDelete adds the callback function, which will be called when an endpoint
-// is deleted.
-func (p *GeneralProvider) OnDelete(f func(Endpoint)) {
-	p.onDeletes.Append(f)
-}
-
-// OnSelect adds the callback function, which will be called when an endpoint
-// is selected.
-func (p *GeneralProvider) OnSelect(f func(Endpoint)) {
-	p.onSelects.Append(f)
-}
-
-// OnFinish adds the callback function, which will be called when an endpoint
-// has finished to handle the request.
-func (p *GeneralProvider) OnFinish(f func(Endpoint)) {
-	p.onFinishs.Append(f)
-}
+func (p *GeneralProvider) Finish(endpoint Endpoint) {}

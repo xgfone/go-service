@@ -86,14 +86,6 @@ func (lb *LoadBalancer) EndpointManager() ProviderEndpointManager {
 	return em
 }
 
-// EndpointEvent asserts the provider to ProviderEndpointEvent
-// if the provider has implemented the interface ProviderEndpointEvent.
-// Or return nil instead.
-func (lb *LoadBalancer) EndpointEvent() ProviderEndpointEvent {
-	ee, _ := lb.Provider.(ProviderEndpointEvent)
-	return ee
-}
-
 // DeleteSession deletes the session cache.
 func (lb *LoadBalancer) DeleteSession(raddr string) {
 	lb.deleteEndpointFromSession(raddr)
