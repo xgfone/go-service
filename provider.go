@@ -48,27 +48,6 @@ type ProviderEndpointManager interface {
 	DelEndpointByString(endpoint string)
 }
 
-// ProviderEndpointGate is used to filter the endpoints to be added, that's,
-// only the endpoints that are the gate can be added into the provider.
-type ProviderEndpointGate interface {
-	// GetEndpointGates returns all the endpoints gates.
-	//
-	// Notice: YOU MUST NOT MODIFY THE RETURNED ENDPOINTS, INCLUDING append().
-	GetEndpointGates() (endpoints []string)
-
-	// SetEndpointGates sets the endpoint gates, that's, only the specified
-	// endpoints can be added into the provider.
-	//
-	// If endpoints is nil or empty, all the endpoints can be allowed.
-	SetEndpointGates(endpoints []string)
-
-	// AddEndpointGate appends the endpoint gate.
-	AddEndpointGate(endpoint string)
-
-	// DelEndpointGate removes the endpoint gate.
-	DelEndpointGate(endpoint string)
-}
-
 // ProviderSelector is used to manage the selector by the provider.
 type ProviderSelector interface {
 	GetSelector() Selector
@@ -78,7 +57,6 @@ type ProviderSelector interface {
 var (
 	_ Provider                = &GeneralProvider{}
 	_ ProviderSelector        = &GeneralProvider{}
-	_ ProviderEndpointGate    = &GeneralProvider{}
 	_ ProviderEndpointManager = &GeneralProvider{}
 )
 
@@ -88,7 +66,6 @@ type GeneralProvider struct {
 
 	selector  Selector
 	endpoints Endpoints
-	epgates   []string
 	eplen     uint32
 }
 
@@ -153,24 +130,9 @@ func (p *GeneralProvider) Endpoints() Endpoints {
 // AddEndpoint adds the endpoint.
 func (p *GeneralProvider) AddEndpoint(endpoint Endpoint) {
 	addr := endpoint.String()
-
 	var old Endpoint
+
 	p.lock.Lock()
-
-	if len(p.epgates) > 0 {
-		filter := true
-		for _, ep := range p.epgates {
-			if ep == addr {
-				filter = false
-			}
-		}
-
-		if filter {
-			p.lock.Unlock()
-			return
-		}
-	}
-
 	for i, ep := range p.endpoints {
 		if ep.String() == addr {
 			p.endpoints[i] = endpoint
@@ -222,61 +184,6 @@ func (p *GeneralProvider) DelEndpointByString(endpoint string) {
 	if eps, ok := deleted.(EndpointStatus); ok {
 		eps.Deactivate(context.Background())
 	}
-}
-
-// GetEndpointGates returns all the endpoints gates.
-func (p *GeneralProvider) GetEndpointGates() (endpoints []string) {
-	p.lock.RLock()
-	eps := p.epgates
-	p.lock.RUnlock()
-	return eps
-}
-
-// SetEndpointGates sets the endpoint gates, that's, only the specified
-// endpoints can be added into the provider.
-//
-// If endpoints is nil or empty, all the endpoints can be allowed.
-func (p *GeneralProvider) SetEndpointGates(endpoints []string) {
-	p.lock.Lock()
-	p.epgates = endpoints
-	p.lock.Unlock()
-}
-
-// AddEndpointGate appends the endpoint gate.
-func (p *GeneralProvider) AddEndpointGate(endpoint string) {
-	if endpoint == "" {
-		panic("GeneralProvider.AddEndpointGate: endpoint must not be empty")
-	}
-
-	var exist bool
-	p.lock.Lock()
-	for _, ep := range p.epgates {
-		if ep == endpoint {
-			exist = true
-			break
-		}
-	}
-	if !exist {
-		p.epgates = append(p.epgates, endpoint)
-	}
-	p.lock.Unlock()
-}
-
-// DelEndpointGate appends the endpoint gate.
-func (p *GeneralProvider) DelEndpointGate(endpoint string) {
-	if endpoint == "" {
-		panic("GeneralProvider.AddEndpointGate: endpoint must not be empty")
-	}
-
-	p.lock.Lock()
-	for i, ep := range p.epgates {
-		if ep == endpoint {
-			copy(p.epgates[i:], p.epgates[i+1:])
-			p.epgates = p.epgates[:len(p.epgates)-1]
-			break
-		}
-	}
-	p.lock.Unlock()
 }
 
 // IsActive reports whether the endpoint is still active.
