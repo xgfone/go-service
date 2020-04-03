@@ -46,8 +46,19 @@ type Request interface {
 	RemoteAddrString() string
 }
 
+type noopRequest struct{ addr string }
+
+// NewNoopRequest returns a Noop request with the remote address,
+// which may be empty.
+func NewNoopRequest(addr string) Request       { return noopRequest{addr: addr} }
+func (r noopRequest) RemoteAddrString() string { return r.addr }
+
+/// -------------------------------------------------------------------------
+
 // Response represents a response.
 type Response interface{}
+
+/// ------------------------------------------------------------------------
 
 // Endpoint represents a service endpoint.
 type Endpoint interface {
@@ -65,23 +76,15 @@ type Endpoint interface {
 	RoundTrip(context.Context, Request) (Response, error)
 }
 
-// EndpointUnwrap is used to unwrap the inner endpoint.
-type EndpointUnwrap interface {
-	// Unwrap unwraps the inner endpoint, but returns nil instead if no inner
-	// endpoint.
-	Unwrap() Endpoint
-}
+type noopEndpoint string
 
-// WeightEndpoint represents an endpoint with the weight.
-type WeightEndpoint interface {
-	Endpoint
+// NewNoopEndpoint returns a new Noop endpoint, which does nothing.
+func NewNoopEndpoint(addr string) Endpoint                                  { return noopEndpoint(addr) }
+func (e noopEndpoint) String() string                                       { return string(e) }
+func (e noopEndpoint) IsHealthy(context.Context) bool                       { return true }
+func (e noopEndpoint) RoundTrip(context.Context, Request) (Response, error) { return nil, nil }
 
-	// Weight returns the weight of the endpoint, which may be equal to 0,
-	// but not the negative.
-	//
-	// The larger the weight, the higher the weight.
-	Weight() int
-}
+/// ------------------------------------------------------------------------
 
 // Endpoints is a set of Endpoint.
 type Endpoints []Endpoint
@@ -107,6 +110,77 @@ func (es Endpoints) Contains(endpoint Endpoint) bool {
 	}
 	return false
 }
+
+/// ------------------------------------------------------------------------
+
+// EndpointUnwrap is used to unwrap the inner endpoint.
+type EndpointUnwrap interface {
+	// Unwrap unwraps the inner endpoint, but returns nil instead if no inner
+	// endpoint.
+	Unwrap() Endpoint
+}
+
+// UnwrapEndpoint unwraps the endpoint until it has not implemented
+// the interface EndpointUnwrap.
+func UnwrapEndpoint(endpoint Endpoint) Endpoint {
+	for {
+		if eu, ok := endpoint.(EndpointUnwrap); ok {
+			endpoint = eu.Unwrap()
+		} else {
+			break
+		}
+	}
+	return endpoint
+}
+
+/// ------------------------------------------------------------------------
+
+// Middleware is a chainable behavior modifier for endpoints.
+type Middleware func(next Endpoint) Endpoint
+
+// Chain is a helper function for composing middlewares, which will be called
+// in turn from first to last.
+func Chain(outer Middleware, others ...Middleware) Middleware {
+	return func(next Endpoint) Endpoint {
+		for i := len(others) - 1; i >= 0; i-- { // reverse
+			next = others[i](next)
+		}
+		return outer(next)
+	}
+}
+
+/// -------------------------------------------------------------------------
+
+// WeightEndpoint represents an endpoint with the weight.
+type WeightEndpoint interface {
+	Endpoint
+
+	// Weight returns the weight of the endpoint, which may be equal to 0,
+	// but not the negative.
+	//
+	// The larger the weight, the higher the weight.
+	Weight() int
+}
+
+// NewWeightEndpoint returns a WeightEndpoint with the weight and the endpoint.
+func NewWeightEndpoint(endpoint Endpoint, weight int) WeightEndpoint {
+	return NewDynamicWeightEndpoint(endpoint, func(Endpoint) int { return weight })
+}
+
+// NewDynamicWeightEndpoint returns a new WeightEndpoint with the endpoint and
+// the weigthFunc that returns the weight of the endpoint.
+func NewDynamicWeightEndpoint(endpoint Endpoint, weightFunc func(Endpoint) int) WeightEndpoint {
+	return weightEndpoint{Endpoint: endpoint, weight: weightFunc}
+}
+
+type weightEndpoint struct {
+	Endpoint
+	weight func(Endpoint) int
+}
+
+func (we weightEndpoint) Weight() int { return we.weight(we.Endpoint) }
+
+/// -------------------------------------------------------------------------
 
 // HealthChecker is used to check the health status of an endpoint.
 type HealthChecker func(context.Context, Endpoint) error
@@ -148,51 +222,3 @@ func CheckEndpointHealth(timeout, retryInterval time.Duration, retryNum int) Hea
 		return nil
 	}
 }
-
-// Middleware is a chainable behavior modifier for endpoints.
-type Middleware func(next Endpoint) Endpoint
-
-// Chain is a helper function for composing middlewares, which will be called
-// in turn from first to last.
-func Chain(outer Middleware, others ...Middleware) Middleware {
-	return func(next Endpoint) Endpoint {
-		for i := len(others) - 1; i >= 0; i-- { // reverse
-			next = others[i](next)
-		}
-		return outer(next)
-	}
-}
-
-type noopRequest struct{ addr string }
-
-// NewNoopRequest returns a Noop request with the remote address,
-// which may be empty.
-func NewNoopRequest(addr string) Request       { return noopRequest{addr: addr} }
-func (r noopRequest) RemoteAddrString() string { return r.addr }
-
-// NewWeightEndpoint returns a WeightEndpoint with the weight and the endpoint.
-func NewWeightEndpoint(endpoint Endpoint, weight int) WeightEndpoint {
-	return NewDynamicWeightEndpoint(endpoint, func(Endpoint) int { return weight })
-}
-
-// NewDynamicWeightEndpoint returns a new WeightEndpoint with the endpoint and
-// the weigthFunc that returns the weight of the endpoint.
-func NewDynamicWeightEndpoint(endpoint Endpoint, weightFunc func(Endpoint) int) WeightEndpoint {
-	return weightEndpoint{Endpoint: endpoint, weight: weightFunc}
-}
-
-type weightEndpoint struct {
-	Endpoint
-
-	weight func(Endpoint) int
-}
-
-func (we weightEndpoint) Weight() int { return we.weight(we.Endpoint) }
-
-type noopEndpoint string
-
-// NewNoopEndpoint returns a new Noop endpoint, which does nothing.
-func NewNoopEndpoint(addr string) Endpoint                                  { return noopEndpoint(addr) }
-func (e noopEndpoint) String() string                                       { return string(e) }
-func (e noopEndpoint) IsHealthy(context.Context) bool                       { return true }
-func (e noopEndpoint) RoundTrip(context.Context, Request) (Response, error) { return nil, nil }
