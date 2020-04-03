@@ -15,7 +15,6 @@
 package service
 
 import (
-	"context"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -145,13 +144,6 @@ func (p *GeneralProvider) AddEndpoint(endpoint Endpoint) {
 		p.updateLen()
 	}
 	p.lock.Unlock()
-
-	if eps, ok := old.(EndpointStatus); ok {
-		eps.Deactivate(context.Background())
-	}
-	if eps, ok := endpoint.(EndpointStatus); ok {
-		eps.Activate(context.Background())
-	}
 }
 
 // DelEndpoint deletes the endpoint.
@@ -161,14 +153,11 @@ func (p *GeneralProvider) DelEndpoint(endpoint Endpoint) {
 
 // DelEndpointByString deletes the endpoint.
 func (p *GeneralProvider) delEndpointByString(endpoint string) {
-	var deleted Endpoint
 	var exist bool
-
 	p.lock.Lock()
 	for i, ep := range p.endpoints {
 		if ep.String() == endpoint {
 			exist = true
-			deleted = ep
 			p.endpoints[i] = nil
 			break
 		}
@@ -179,10 +168,6 @@ func (p *GeneralProvider) delEndpointByString(endpoint string) {
 		p.updateLen()
 	}
 	p.lock.Unlock()
-
-	if eps, ok := deleted.(EndpointStatus); ok {
-		eps.Deactivate(context.Background())
-	}
 }
 
 // IsActive reports whether the endpoint is still active.

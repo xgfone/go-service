@@ -65,23 +65,6 @@ type Endpoint interface {
 	RoundTrip(context.Context, Request) (Response, error)
 }
 
-// EndpointStatus is used to manage the status of the endpoint.
-type EndpointStatus interface {
-	// Activate is called when the endpoint is added into the provider,
-	// if the endpoint has implemented the interface.
-	//
-	// Notice: An endpoint may be added into more than one provider, so it may
-	// be called multiple times.
-	Activate(context.Context)
-
-	// Deactivate is called when the endpoint is removed from the provider,
-	// if the endpoint has implemented the interface.
-	//
-	// Notice: An endpoint may be added into more than one provider, so it may
-	// be called multiple times.
-	Deactivate(context.Context)
-}
-
 // EndpointUnwrap is used to unwrap the inner endpoint.
 type EndpointUnwrap interface {
 	// Unwrap unwraps the inner endpoint, but returns nil instead if no inner
@@ -205,16 +188,6 @@ type weightEndpoint struct {
 }
 
 func (we weightEndpoint) Weight() int { return we.weight(we.Endpoint) }
-func (we weightEndpoint) Activate(ctx context.Context) {
-	if eps, ok := we.Endpoint.(EndpointStatus); ok {
-		eps.Activate(ctx)
-	}
-}
-func (we weightEndpoint) Deactivate(ctx context.Context) {
-	if eps, ok := we.Endpoint.(EndpointStatus); ok {
-		eps.Deactivate(ctx)
-	}
-}
 
 type noopEndpoint string
 
