@@ -37,14 +37,6 @@ type Provider interface {
 	// If the index does not exist, it maybe return the next endpoint.
 	// And if no active endpoints, it should return nil for Endpoint.
 	SelectByIndex(index int) (realIndex int, endpoint Endpoint)
-
-	// Hit should be called when the endpoint is cached and used again,
-	// which is used to notice the provider that the endpoint is using.
-	Hit(Endpoint)
-
-	// Finish should be called when the endpoint has finished to handle the
-	// request which is used to notice the provider that the endpoint is idle.
-	Finish(endpoint Endpoint)
 }
 
 // ProviderEndpointManager is an interface to manage the endpoints.
@@ -327,11 +319,3 @@ func (p *GeneralProvider) SelectByIndex(index int) (realIndex int, endpoint Endp
 	p.lock.RUnlock()
 	return
 }
-
-// Hit should be called when the endpoint is cached and used again,
-// which is used to notice the provider that the endpoint is using.
-func (p *GeneralProvider) Hit(endpoint Endpoint) {}
-
-// Finish should be called when the endpoint has finished to handle the
-// request which is used to notice the provider that the endpoint is idle.
-func (p *GeneralProvider) Finish(endpoint Endpoint) {}
