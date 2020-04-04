@@ -135,22 +135,6 @@ func UnwrapEndpoint(endpoint Endpoint) Endpoint {
 
 /// ------------------------------------------------------------------------
 
-// Middleware is a chainable behavior modifier for endpoints.
-type Middleware func(next Endpoint) Endpoint
-
-// Chain is a helper function for composing middlewares, which will be called
-// in turn from first to last.
-func Chain(outer Middleware, others ...Middleware) Middleware {
-	return func(next Endpoint) Endpoint {
-		for i := len(others) - 1; i >= 0; i-- { // reverse
-			next = others[i](next)
-		}
-		return outer(next)
-	}
-}
-
-/// -------------------------------------------------------------------------
-
 // WeightEndpoint represents an endpoint with the weight.
 type WeightEndpoint interface {
 	Endpoint
@@ -179,6 +163,22 @@ type weightEndpoint struct {
 }
 
 func (we weightEndpoint) Weight() int { return we.weight(we.Endpoint) }
+
+/// -------------------------------------------------------------------------
+
+// Middleware is a chainable behavior modifier for endpoints.
+type Middleware func(next Endpoint) Endpoint
+
+// Chain is a helper function for composing middlewares, which will be called
+// in turn from first to last.
+func Chain(outer Middleware, others ...Middleware) Middleware {
+	return func(next Endpoint) Endpoint {
+		for i := len(others) - 1; i >= 0; i-- { // reverse
+			next = others[i](next)
+		}
+		return outer(next)
+	}
+}
 
 /// -------------------------------------------------------------------------
 

@@ -29,82 +29,36 @@ type Selector interface {
 
 	// Select returns the index of the selected endpoint from endpoints
 	// by the request.
-	Select(request Request, endpoints Endpoints) (index int)
+	Select(request Request, endpoints Endpoints) Endpoint
 }
 
 type selector struct {
 	name     string
-	selector func(Request, Endpoints) int
+	selector func(Request, Endpoints) Endpoint
 }
 
-func (s selector) String() string                      { return s.name }
-func (s selector) Select(r Request, eps Endpoints) int { return s.selector(r, eps) }
+func (s selector) String() string                           { return s.name }
+func (s selector) Select(r Request, eps Endpoints) Endpoint { return s.selector(r, eps) }
 
 // SelectorFunc returns a new Selector with the name and the selector.
-func SelectorFunc(name string, s func(Request, Endpoints) int) Selector {
+func SelectorFunc(name string, s func(Request, Endpoints) Endpoint) Selector {
 	return selector{name: name, selector: s}
 }
 
-var selectors map[string]Selector
-
-// RegisterSelector registers a Selector.
-//
-// If the selector has been registered, it will be overrided.
-func RegisterSelector(selector Selector) {
-	selectors[selector.String()] = selector
-}
-
-// GetSelector returns the Selector named name.
-//
-// Return nil if the selector does not exist.
-func GetSelector(name string) Selector { return selectors[name] }
-
 // RandomSelector returns a random selector which returns a endpoint randomly,
 // whose name is "random".
-//
-// If the endpoint has implemented the inerface WeightEndpoint, it will select
-// an endpoint based on the weight.
 func RandomSelector() Selector {
-	getWeight := func(ep Endpoint) (weight int) {
-		if we, ok := ep.(WeightEndpoint); ok {
-			weight = we.Weight()
-		}
-		return
-	}
-	return SelectorFunc("random", func(req Request, endpoints Endpoints) int {
-		var lastWeight int
-		var totalWeight int
-
-		sameWeight := true
-		for i, ep := range endpoints {
-			weight := getWeight(ep)
-			totalWeight += weight
-			if i == 0 {
-				lastWeight = weight
-			} else if sameWeight && weight != lastWeight {
-				sameWeight = false
-			}
-		}
-
-		if sameWeight || totalWeight == 0 {
-			offset := rand.Intn(totalWeight)
-			for i, ep := range endpoints {
-				if offset -= getWeight(ep); offset < 0 {
-					return i
-				}
-			}
-		}
-
-		return rand.Intn(len(endpoints))
+	return SelectorFunc("random", func(req Request, eps Endpoints) Endpoint {
+		return eps[rand.Intn(len(eps))]
 	})
 }
 
 // RoundRobinSelector returns a RoundRobin selector, whose name is "round_robin".
 func RoundRobinSelector() Selector {
 	var last uint64
-	return SelectorFunc("round_robin", func(req Request, endpoints Endpoints) int {
+	return SelectorFunc("round_robin", func(req Request, eps Endpoints) Endpoint {
 		last++
-		return int(last % uint64(len(endpoints)))
+		return eps[last%uint64(len(eps))]
 	})
 }
 
@@ -115,7 +69,7 @@ func RoundRobinSelector() Selector {
 // the RoundRobin selector.
 func SourceIPSelector() Selector {
 	rr := RoundRobinSelector()
-	return SelectorFunc("source_ip", func(req Request, endpoints Endpoints) int {
+	return SelectorFunc("source_ip", func(req Request, eps Endpoints) Endpoint {
 		var ip net.IP
 		if raddr, ok := req.(interface{ RemoteAddr() net.Addr }); ok {
 			switch addr := raddr.RemoteAddr().(type) {
@@ -139,9 +93,50 @@ func SourceIPSelector() Selector {
 		case net.IPv6len:
 			value = binary.BigEndian.Uint64(ip[8:16])
 		default:
-			return rr.Select(req, endpoints)
+			return rr.Select(req, eps)
 		}
 
-		return int(value % uint64(len(endpoints)))
+		return eps[value%uint64(len(eps))]
+	})
+}
+
+// WeightSelector returns an endpoint selector based on the weight,
+// whose name is "weight".
+//
+// Notice: If failing to parse the remote address, it will degenerate to
+// the RoundRobin selector.
+func WeightSelector() Selector {
+	getWeight := func(ep Endpoint) (weight int) {
+		if we, ok := ep.(WeightEndpoint); ok {
+			weight = we.Weight()
+		}
+		return
+	}
+
+	return SelectorFunc("weight", func(req Request, eps Endpoints) Endpoint {
+		var lastWeight int
+		var totalWeight int
+
+		sameWeight := true
+		for i, ep := range eps {
+			weight := getWeight(ep)
+			totalWeight += weight
+			if i == 0 {
+				lastWeight = weight
+			} else if sameWeight && weight != lastWeight {
+				sameWeight = false
+			}
+		}
+
+		if sameWeight || totalWeight == 0 {
+			offset := rand.Intn(totalWeight)
+			for _, ep := range eps {
+				if offset -= getWeight(ep); offset < 0 {
+					return ep
+				}
+			}
+		}
+
+		return eps[rand.Intn(len(eps))]
 	})
 }

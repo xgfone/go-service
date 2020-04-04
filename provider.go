@@ -28,14 +28,8 @@ type Provider interface {
 	// IsActive reports whether the endpoint is still active.
 	IsActive(Endpoint) bool
 
-	// Select selects an endpoint with its index by the Request.
-	Select(Request) (index int, endpoint Endpoint)
-
-	// SelectByIndex selects the endpoint by the index information.
-	//
-	// If the index does not exist, it maybe return the next endpoint.
-	// And if no active endpoints, it should return nil for Endpoint.
-	SelectByIndex(index int) (realIndex int, endpoint Endpoint)
+	// Select selects an endpoint by the Request.
+	Select(Request) Endpoint
 }
 
 // ProviderEndpointManager is an interface to manage the endpoints.
@@ -60,26 +54,22 @@ var (
 
 // GeneralProvider is a general provider of the endpoints.
 type GeneralProvider struct {
-	lock sync.RWMutex
-
+	lock      sync.RWMutex
 	selector  Selector
 	endpoints Endpoints
 	eplen     uint32
 }
 
 // NewGeneralProvider returns a new GeneralProvider with the selector.
-func NewGeneralProvider(selector Selector, endpoints ...Endpoint) *GeneralProvider {
+func NewGeneralProvider(selector Selector) *GeneralProvider {
 	if selector == nil {
 		panic("GeneralProvider: the selector must not be nil")
 	}
 
-	p := &GeneralProvider{
+	return &GeneralProvider{
 		selector:  selector,
 		endpoints: make(Endpoints, 0, 8),
 	}
-
-	p.addEndpoints(endpoints...)
-	return p
 }
 
 // GetSelector returns the selector.
@@ -184,28 +174,10 @@ func (p *GeneralProvider) IsActive(endpoint Endpoint) (active bool) {
 }
 
 // Select selects an endpoint by the selector.
-func (p *GeneralProvider) Select(req Request) (index int, endpoint Endpoint) {
+func (p *GeneralProvider) Select(req Request) (endpoint Endpoint) {
 	p.lock.RLock()
 	if len(p.endpoints) > 0 {
-		index = p.selector.Select(req, p.endpoints)
-		endpoint = p.endpoints[index]
-	}
-	p.lock.RUnlock()
-	return
-}
-
-// SelectByIndex selects the endpoint by the index.
-//
-// If the index do not exist, it will return the next endpoint.
-// And return (0, nil) if no active endpoints.
-func (p *GeneralProvider) SelectByIndex(index int) (realIndex int, endpoint Endpoint) {
-	p.lock.RLock()
-	if _len := len(p.endpoints); _len > 0 {
-		if index >= _len {
-			index = index % _len
-		}
-		realIndex = index
-		endpoint = p.endpoints[realIndex]
+		endpoint = p.selector.Select(req, p.endpoints)
 	}
 	p.lock.RUnlock()
 	return

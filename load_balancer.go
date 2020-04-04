@@ -103,32 +103,30 @@ func (lb *LoadBalancer) deleteEndpointFromSession(addr string) {
 	}
 }
 
-func (lb *LoadBalancer) selectEndpoint(req Request, raddr string) (
-	total, index int, endpoint Endpoint) {
+func (lb *LoadBalancer) getEndpoint(raddr string, req Request) (total int, ep Endpoint) {
 	if total = lb.Provider.Len(); total == 0 {
 		return
 	}
 
-	endpoint = lb.getEndpointFromSession(raddr)
-	if endpoint != nil && !lb.Provider.IsActive(endpoint) {
+	ep = lb.getEndpointFromSession(raddr)
+	if ep != nil && !lb.Provider.IsActive(ep) {
 		lb.deleteEndpointFromSession(raddr)
-		endpoint = nil
+		ep = nil
 	}
 
-	if endpoint == nil {
-		index, endpoint = lb.Provider.Select(req)
-		lb.setEndpointToSession(raddr, endpoint)
+	if ep == nil {
+		ep = lb.Provider.Select(req)
+		lb.setEndpointToSession(raddr, ep)
 	}
 
 	return
 }
 
-func (lb *LoadBalancer) getEndpointByIndex(addr string, index int) (int, Endpoint) {
-	index, endpoint := lb.Provider.SelectByIndex(index)
-	if endpoint != nil {
-		lb.setEndpointToSession(addr, endpoint)
+func (lb *LoadBalancer) selectEndpoint(addr string, req Request) (ep Endpoint) {
+	if ep = lb.Provider.Select(req); ep != nil {
+		lb.setEndpointToSession(addr, ep)
 	}
-	return index, endpoint
+	return
 }
 
 // RoundTrip selects an endpoint, then call it. If failed, it will retry it
@@ -139,44 +137,52 @@ func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Respon
 		raddr = sreq.SessionID()
 	}
 
-	total, index, endpoint := lb.selectEndpoint(req, raddr)
-	if endpoint == nil {
+	total, endpoint := lb.getEndpoint(raddr, req)
+	if total == 0 || endpoint == nil {
 		return nil, ErrNoAvailableEndpoint
 	}
 
 	var retry int
 	var interval time.Duration
+
+FOR:
 	for endpoint != nil {
 		resp, err = endpoint.RoundTrip(ctx, req)
 		if err == nil {
 			return
+		} else if lb.FailRetry == nil {
+			break FOR
 		}
 
-		if lb.FailRetry == nil {
-			break
-		} else if index = lb.FailRetry.Next(total, index, retry); index < 0 {
-			break
+		switch lb.FailRetry.Next(total, retry) {
+		case -1:
+			break FOR
+		case 0:
+			endpoint = nil
 		}
 
 		select {
 		case <-ctx.Done():
-			break
+			break FOR
 		default:
 		}
 
 		retry++
 		if lb.RetryDelay != nil {
 			if interval = lb.RetryDelay(retry, interval); interval > 0 {
-				time.Sleep(interval)
+				timer := time.NewTimer(interval)
 				select {
 				case <-ctx.Done():
-					break
-				default:
+					timer.Stop()
+					break FOR
+				case <-timer.C:
 				}
 			}
 		}
 
-		index, endpoint = lb.getEndpointByIndex(raddr, index)
+		if endpoint == nil {
+			endpoint = lb.selectEndpoint(raddr, req)
+		}
 	}
 
 	lb.deleteEndpointFromSession(raddr)

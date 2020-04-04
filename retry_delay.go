@@ -26,7 +26,7 @@ func NewFixedRetryDelay(delay time.Duration) RetryDelay {
 	return func(int, time.Duration) time.Duration { return delay }
 }
 
-// NewMultipleRetryDelay returns a delay that will increase the
+// NewMultipleRetryDelay returns a delay that will doubles the delay duration.
 func NewMultipleRetryDelay(start, end time.Duration) RetryDelay {
 	if start < 1 || end < 1 {
 		panic("MultipleDelay: the start or end duration must be an positive integer")
