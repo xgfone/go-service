@@ -20,6 +20,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/xgfone/go-service/retry"
 )
 
 // RequestSession represents a request session of the business logic.
@@ -194,6 +196,7 @@ type HealthChecker func(context.Context, Endpoint) error
 // retry it, and if retryInterval is equal to 0, it will retry it immediately,
 // not wait for the interval duration.
 func CheckEndpointHealth(timeout, retryInterval time.Duration, retryNum int) HealthChecker {
+	retry := retry.NewIntervalRetry(retryNum, retryInterval)
 	return func(ctx context.Context, endpoint Endpoint) error {
 		addr := endpoint.String()
 		if strings.HasPrefix(addr, "http") {
@@ -208,7 +211,7 @@ func CheckEndpointHealth(timeout, retryInterval time.Duration, retryNum int) Hea
 			}
 		}
 
-		_, err := Retry(ctx, retryNum, retryInterval, func(context.Context) (interface{}, error) {
+		_, err := retry.Call(ctx, func(context.Context) (interface{}, error) {
 			conn, err := net.DialTimeout("tcp", addr, timeout)
 			if err == nil {
 				conn.Close()
