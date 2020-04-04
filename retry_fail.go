@@ -15,9 +15,7 @@
 package service
 
 import (
-	"context"
 	"fmt"
-	"time"
 )
 
 // FailRetry is used to calculate the index of the next endpoint to be used
@@ -66,7 +64,7 @@ func failRetryWithNext(name string, maxnum, next int) FailRetry {
 	return FailRetryFunc(name, func(total, retried int) int {
 		if maxnum == 0 && retried >= total {
 			return -1
-		} else if retried >= maxnum {
+		} else if maxnum > 0 && retried >= maxnum {
 			return -1
 		}
 		return next
@@ -92,45 +90,4 @@ func FailTry(maxnum int) FailRetry {
 // Notice: the name is "failover(maxnum)".
 func FailOver(maxnum int) FailRetry {
 	return failRetryWithNext(fmt.Sprintf("failover(%d)", maxnum), maxnum, 0)
-}
-
-// Caller stands for the caller function.
-type Caller func(context.Context) (result interface{}, err error)
-
-// Retry calls the callee function, which will retry it with the interval time
-// for the number times when returning an error.
-//
-// If number is equal to 0, it won't retry it. And if interval is equal to 0,
-// it will retry it immediately.
-func Retry(ctx context.Context, number int, interval time.Duration,
-	callee Caller) (result interface{}, err error) {
-
-	if number < 0 {
-		panic("the retry number must not be negative")
-	}
-
-	result, err = callee(ctx)
-	for err != nil && number > 0 {
-		number--
-
-		if interval > 0 {
-			timer := time.NewTimer(interval)
-			select {
-			case <-timer.C:
-			case <-ctx.Done():
-				timer.Stop()
-				break
-			}
-		} else {
-			select {
-			case <-ctx.Done():
-				break
-			default:
-			}
-		}
-
-		result, err = callee(ctx)
-	}
-
-	return
 }
