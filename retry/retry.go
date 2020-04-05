@@ -16,17 +16,24 @@ package retry
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
+// ErrEndRetry is used by the callee to end to retry.
+var ErrEndRetry = errors.New("end to retry")
+
 // Caller is the caller function.
-type Caller func(context.Context) (result interface{}, err error)
+type Caller func(ctx context.Context, arg interface{}) (result interface{}, err error)
 
 // Retry is used to retry a function call when it returns an error.
 type Retry interface {
 	// Call calls the caller and returns it result, which will retry it
 	// when the caller returns the error.
-	Call(context.Context, Caller) (result interface{}, err error)
+	//
+	// Notice: the callee maybe return ErrEndRetry to end to retry,
+	// and the implementation must support it.
+	Call(ctx context.Context, arg interface{}, callee Caller) (result interface{}, err error)
 }
 
 // NewIntervalRetry returns a new Retry to call the caller, which will retry
@@ -43,8 +50,8 @@ type intervalRetry struct {
 	interval time.Duration
 }
 
-func (r intervalRetry) Call(c context.Context, f Caller) (interface{}, error) {
-	result, err := f(c)
+func (r intervalRetry) Call(c context.Context, a interface{}, f Caller) (interface{}, error) {
+	result, err := f(c, a)
 
 FOR:
 	for number := r.number; err != nil && number > 0; number-- {
@@ -64,7 +71,7 @@ FOR:
 			}
 		}
 
-		result, err = f(c)
+		result, err = f(c, a)
 	}
 
 	return result, err
@@ -86,8 +93,8 @@ type doubleDelayRetry struct {
 	end    time.Duration
 }
 
-func (r doubleDelayRetry) Call(c context.Context, f Caller) (interface{}, error) {
-	result, err := f(c)
+func (r doubleDelayRetry) Call(c context.Context, a interface{}, f Caller) (interface{}, error) {
+	result, err := f(c, a)
 
 FOR:
 	for number, start := r.number, r.start; err != nil && number > 0; number-- {
@@ -99,7 +106,7 @@ FOR:
 			break FOR
 		}
 
-		if result, err = f(c); err != nil {
+		if result, err = f(c, a); err != nil {
 			if start = start * 2; r.end > 0 && start > r.end {
 				start = r.end
 			}

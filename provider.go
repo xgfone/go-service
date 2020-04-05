@@ -61,9 +61,11 @@ type GeneralProvider struct {
 }
 
 // NewGeneralProvider returns a new GeneralProvider with the selector.
+//
+// If selector is nil, it uses RoundRobinSelector as the default.
 func NewGeneralProvider(selector Selector) *GeneralProvider {
 	if selector == nil {
-		panic("GeneralProvider: the selector must not be nil")
+		selector = RoundRobinSelector()
 	}
 
 	return &GeneralProvider{

@@ -21,14 +21,14 @@ import (
 	"time"
 )
 
-func callError(c context.Context) (interface{}, error) {
+func callError(c context.Context, a interface{}) (interface{}, error) {
 	return nil, errors.New("test")
 }
 
 func TestNewIntervalRetry(t *testing.T) {
 	start := time.Now()
 	retry := NewIntervalRetry(3, time.Millisecond*20)
-	if _, err := retry.Call(context.TODO(), callError); err == nil {
+	if _, err := retry.Call(context.TODO(), nil, callError); err == nil {
 		t.Fail()
 	} else if err.Error() != "test" {
 		t.Errorf("the error is 'test': %s", err)
@@ -41,7 +41,7 @@ func TestNewIntervalRetry(t *testing.T) {
 
 	start = time.Now()
 	retry = NewIntervalRetry(5, 0)
-	if _, err := retry.Call(context.TODO(), callError); err == nil {
+	if _, err := retry.Call(context.TODO(), nil, callError); err == nil {
 		t.Fail()
 	} else if err.Error() != "test" {
 		t.Errorf("the error is 'test': %s", err)
@@ -55,7 +55,7 @@ func TestNewIntervalRetry(t *testing.T) {
 func TestNewDoubleDelayRetry(t *testing.T) {
 	start := time.Now()
 	retry := NewDoubleDelayRetry(3, time.Millisecond*20, 0)
-	if _, err := retry.Call(context.TODO(), callError); err == nil {
+	if _, err := retry.Call(context.TODO(), nil, callError); err == nil {
 		t.Fail()
 	} else if err.Error() != "test" {
 		t.Errorf("the error is 'test': %s", err)
@@ -67,7 +67,7 @@ func TestNewDoubleDelayRetry(t *testing.T) {
 
 	start = time.Now()
 	retry = NewDoubleDelayRetry(5, time.Millisecond*10, time.Millisecond*20)
-	if _, err := retry.Call(context.TODO(), callError); err == nil {
+	if _, err := retry.Call(context.TODO(), nil, callError); err == nil {
 		t.Fail()
 	} else if err.Error() != "test" {
 		t.Errorf("the error is 'test': %s", err)
