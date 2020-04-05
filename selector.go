@@ -61,7 +61,11 @@ func RandomSelector() Selector {
 
 // RoundRobinSelector returns a RoundRobin selector, whose name is "round_robin".
 func RoundRobinSelector() Selector {
-	var last uint64
+	return roundRobinSelector(random.Intn(64))
+}
+
+func roundRobinSelector(start int) Selector {
+	last := uint64(start)
 	return SelectorFunc("round_robin", func(req Request, eps Endpoints) Endpoint {
 		last++
 		return eps[last%uint64(len(eps))]

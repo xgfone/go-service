@@ -53,7 +53,7 @@ type stringRequest string
 func (r stringRequest) RemoteAddrString() string { return string(r) }
 
 func TestFailFast(t *testing.T) {
-	p := NewGeneralProvider(nil)
+	p := NewGeneralProvider(roundRobinSelector(0))
 	ep := newFailEndpoint("1.2.3.4", nil)
 	_, err := FailFast().Retry(context.TODO(), NewNoopRequest("5.6.7.8"), ep, p)
 	if err != errFailed {
@@ -63,7 +63,7 @@ func TestFailFast(t *testing.T) {
 
 func TestFailTry(t *testing.T) {
 	buf := bytes.NewBufferString("\n")
-	p := NewGeneralProvider(nil)
+	p := NewGeneralProvider(roundRobinSelector(0))
 	p.AddEndpoint(newFailEndpoint("1.1.1.1:80", buf))
 	p.AddEndpoint(newFailEndpoint("2.2.2.2:80", buf))
 	p.AddEndpoint(newFailEndpoint("3.3.3.3:80", buf))
@@ -101,7 +101,7 @@ func TestFailTry(t *testing.T) {
 
 func TestFailOver(t *testing.T) {
 	buf := bytes.NewBufferString("\n")
-	p := NewGeneralProvider(nil)
+	p := NewGeneralProvider(roundRobinSelector(0))
 	p.AddEndpoint(newFailEndpoint("1.1.1.1:80", buf))
 	p.AddEndpoint(newFailEndpoint("2.2.2.2:80", buf))
 	p.AddEndpoint(newFailEndpoint("3.3.3.3:80", buf))
