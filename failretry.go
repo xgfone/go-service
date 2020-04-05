@@ -26,6 +26,14 @@ type FailRetry interface {
 	// String returns the name of FailRetry.
 	String() string
 
+	// Retry calls the endpoint to finish the service. If the endpoint returns
+	// the error, it will retry it.
+	//
+	// ep is the initial endpoint, which must not be nil, but you can get a new
+	// one from Provider instead of it when retrying the service.
+	//
+	// Notice: you should call the initial endpoint firstly, and retry it agent
+	// if it returns the error.
 	Retry(c context.Context, r Request, ep Endpoint, p Provider) (Response, error)
 }
 
