@@ -18,6 +18,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/xgfone/go-service/retry"
 )
 
 // Predefine some errors.
@@ -42,25 +44,19 @@ type LoadBalancer struct {
 
 	// FailRetry is used to retry when failing, which is FailOver(0) by default.
 	FailRetry FailRetry
-
-	// RetryDelay is used to get the interval time between the retries,
-	// which is NewFixedDelay(10ms) by default.
-	RetryDelay RetryDelay
 }
 
 // NewLoadBalancer returns a new LoadBalancer.
 //
-// If provider is nil, it will use NewGeneralProvider(RoundRobinSelector())
-// by default.
+// If provider is nil, it will use NewGeneralProvider(nil) as the default.
 func NewLoadBalancer(provider Provider) *LoadBalancer {
 	if provider == nil {
-		provider = NewGeneralProvider(RoundRobinSelector())
+		provider = NewGeneralProvider(nil)
 	}
 	return &LoadBalancer{
-		Provider:   provider,
-		Session:    NewMemorySessionManager(),
-		FailRetry:  FailOver(0),
-		RetryDelay: NewFixedRetryDelay(time.Millisecond * 10),
+		Provider:  provider,
+		Session:   NewMemorySessionManager(),
+		FailRetry: FailOver(0, retry.DefaultRetryNewer(time.Millisecond*10)),
 	}
 }
 
@@ -103,9 +99,10 @@ func (lb *LoadBalancer) deleteEndpointFromSession(addr string) {
 	}
 }
 
-func (lb *LoadBalancer) getEndpoint(raddr string, req Request) (total int, ep Endpoint) {
-	if total = lb.Provider.Len(); total == 0 {
-		return
+func (lb *LoadBalancer) getEndpoint(req Request) (ep Endpoint) {
+	raddr := req.RemoteAddrString()
+	if sreq, ok := req.(RequestSession); ok {
+		raddr = sreq.SessionID()
 	}
 
 	ep = lb.getEndpointFromSession(raddr)
@@ -115,76 +112,41 @@ func (lb *LoadBalancer) getEndpoint(raddr string, req Request) (total int, ep En
 	}
 
 	if ep == nil {
-		ep = lb.Provider.Select(req)
-		lb.setEndpointToSession(raddr, ep)
+		if ep = lb.Provider.Select(req); ep != nil {
+			lb.setEndpointToSession(raddr, ep)
+		}
 	}
 
 	return
 }
 
-func (lb *LoadBalancer) selectEndpoint(addr string, req Request) (ep Endpoint) {
+func (lb *LoadBalancer) selectEndpoint(req Request) (ep Endpoint) {
+	raddr := req.RemoteAddrString()
+	if sreq, ok := req.(RequestSession); ok {
+		raddr = sreq.SessionID()
+	}
+
+	lb.deleteEndpointFromSession(raddr)
 	if ep = lb.Provider.Select(req); ep != nil {
-		lb.setEndpointToSession(addr, ep)
+		lb.setEndpointToSession(raddr, ep)
 	}
 	return
 }
 
 // RoundTrip selects an endpoint, then call it. If failed, it will retry it
 // by the fail handler.
-func (lb *LoadBalancer) RoundTrip(ctx context.Context, req Request) (resp Response, err error) {
-	raddr := req.RemoteAddrString()
-	if sreq, ok := req.(RequestSession); ok {
-		raddr = sreq.SessionID()
-	}
-
-	total, endpoint := lb.getEndpoint(raddr, req)
-	if total == 0 || endpoint == nil {
+func (lb *LoadBalancer) RoundTrip(c context.Context, r Request) (Response, error) {
+	if endpoint := lb.getEndpoint(r); endpoint == nil {
 		return nil, ErrNoAvailableEndpoint
+	} else if lb.FailRetry == nil {
+		return endpoint.RoundTrip(c, r)
+	} else {
+		return lb.FailRetry.Retry(c, r, endpoint, lbProvider{lb})
 	}
+}
 
-	var retry int
-	var interval time.Duration
+type lbProvider struct{ *LoadBalancer }
 
-FOR:
-	for endpoint != nil {
-		resp, err = endpoint.RoundTrip(ctx, req)
-		if err == nil {
-			return
-		} else if lb.FailRetry == nil {
-			break FOR
-		}
-
-		switch lb.FailRetry.Next(total, retry) {
-		case -1:
-			break FOR
-		case 0:
-			endpoint = nil
-		}
-
-		select {
-		case <-ctx.Done():
-			break FOR
-		default:
-		}
-
-		retry++
-		if lb.RetryDelay != nil {
-			if interval = lb.RetryDelay(retry, interval); interval > 0 {
-				timer := time.NewTimer(interval)
-				select {
-				case <-ctx.Done():
-					timer.Stop()
-					break FOR
-				case <-timer.C:
-				}
-			}
-		}
-
-		if endpoint == nil {
-			endpoint = lb.selectEndpoint(raddr, req)
-		}
-	}
-
-	lb.deleteEndpointFromSession(raddr)
-	return
+func (p lbProvider) Select(req Request) (ep Endpoint) {
+	return p.LoadBalancer.selectEndpoint(req)
 }

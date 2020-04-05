@@ -36,6 +36,12 @@ type Retry interface {
 	Call(ctx context.Context, arg interface{}, callee Caller) (result interface{}, err error)
 }
 
+// DefaultRetryNewer returns a new default retry newer, which is used to create
+// a new Retry with the given interval duration.
+func DefaultRetryNewer(interval time.Duration) func(number int) Retry {
+	return func(number int) Retry { return NewIntervalRetry(number, interval) }
+}
+
 // NewIntervalRetry returns a new Retry to call the caller, which will retry
 // to call it until the caller returns nil or is called for number times.
 //

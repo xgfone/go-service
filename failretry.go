@@ -1,4 +1,4 @@
-// Copyright 2019 xgfone
+// Copyright 2020 xgfone
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,61 +15,36 @@
 package service
 
 import (
+	"context"
 	"fmt"
+
+	"github.com/xgfone/go-service/retry"
 )
 
-// FailRetry is used to calculate the index of the next endpoint to be used
-// to retry the service.
+// FailRetry is used to retry the service.
 type FailRetry interface {
 	// String returns the name of FailRetry.
 	String() string
 
-	// Next calculates the next endpoint to retry the service.
-	//
-	// totalNum is the total number of all the endpoints.
-	// hasRetriedNum is the retried times, starting with 0.
-	//
-	// Return -1, it will terminate to retry.
-	// Return  0, it will select the next endpoint to retry.
-	// Return  1, it will use the same endpoint to retry.
-	Next(totalNum, hasRetriedNum int) int
+	Retry(c context.Context, r Request, ep Endpoint, p Provider) (Response, error)
 }
 
-type failRetry struct {
-	name string
-	next func(int, int) int
-}
+/// -------------------------------------------------------------------------
 
-func (r failRetry) String() string              { return r.name }
-func (r failRetry) Next(total, retried int) int { return r.next(total, retried) }
-
-// FailRetryFunc converts a function with the name to FailRetry.
-func FailRetryFunc(name string, next func(total, retried int) int) FailRetry {
-	return failRetry{name: name, next: next}
-}
-
-// FailFast returns a fast fail handler, which returns the error instantly
-// and no retry.
+// FailFast returns a fail handler without any retry.
 //
 // Notice: the name is "fastfail".
-func FailFast() FailRetry {
-	return FailRetryFunc("fastfail", func(total, retry int) int { return -1 })
+func FailFast() FailRetry { return failfastRetry{} }
+
+type failfastRetry struct{}
+
+func (r failfastRetry) String() string { return "fastfail" }
+func (r failfastRetry) Retry(ctx context.Context, req Request, ep Endpoint,
+	p Provider) (Response, error) {
+	return ep.RoundTrip(ctx, req)
 }
 
-func failRetryWithNext(name string, maxnum, next int) FailRetry {
-	if maxnum < 0 {
-		panic("the retry maximum number must not be a negative integer")
-	}
-
-	return FailRetryFunc(name, func(total, retried int) int {
-		if maxnum == 0 && retried >= total {
-			return -1
-		} else if maxnum > 0 && retried >= maxnum {
-			return -1
-		}
-		return next
-	})
-}
+/// -------------------------------------------------------------------------
 
 // FailTry returns a fail handler, which will retry the same endpoint
 // until the maximum retry number.
@@ -78,8 +53,12 @@ func failRetryWithNext(name string, maxnum, next int) FailRetry {
 // of the endpoints.
 //
 // Notice: the name is "failtry(maxnum)".
-func FailTry(maxnum int) FailRetry {
-	return failRetryWithNext(fmt.Sprintf("failtry(%d)", maxnum), maxnum, 1)
+func FailTry(maxnum int, retryf func(maxnum int) retry.Retry) FailRetry {
+	if maxnum < 0 {
+		panic("FailTry: the retry maximum number must not be a negative integer")
+	}
+	name := fmt.Sprintf("failtry(%d)", maxnum)
+	return failRetry{name: name, maxnum: maxnum, retryf: retryf, sameep: true}
 }
 
 // FailOver returns a fail handler, which will retry the other endpoints
@@ -88,6 +67,52 @@ func FailTry(maxnum int) FailRetry {
 // If maxnum is equal to 0, it will retry until all endpoints are retried.
 //
 // Notice: the name is "failover(maxnum)".
-func FailOver(maxnum int) FailRetry {
-	return failRetryWithNext(fmt.Sprintf("failover(%d)", maxnum), maxnum, 0)
+func FailOver(maxnum int, retryf func(maxnum int) retry.Retry) FailRetry {
+	if maxnum < 0 {
+		panic("FailOver: the retry maximum number must not be a negative integer")
+	}
+	name := fmt.Sprintf("failover(%d)", maxnum)
+	return failRetry{name: name, maxnum: maxnum, retryf: retryf}
+}
+
+type failRetryArg struct {
+	Request
+	Endpoint
+	Provider
+
+	Resp Response
+	Err  error
+}
+
+type failRetry struct {
+	name   string
+	sameep bool
+
+	maxnum int
+	retryf func(int) retry.Retry
+}
+
+func (r failRetry) String() string { return r.name }
+func (r failRetry) Retry(ctx context.Context, req Request, ep Endpoint,
+	p Provider) (Response, error) {
+	num := r.maxnum
+	if num == 0 {
+		num = p.Len()
+	}
+
+	arg := &failRetryArg{Request: req, Endpoint: ep, Provider: p}
+	r.retryf(num).Call(ctx, arg, r.call)
+	return arg.Resp, arg.Err
+}
+func (r failRetry) call(c context.Context, a interface{}) (interface{}, error) {
+	arg := a.(*failRetryArg)
+	if r.sameep {
+		arg.Resp, arg.Err = arg.Endpoint.RoundTrip(c, arg.Request)
+	} else if arg.Endpoint != nil {
+		arg.Resp, arg.Err = arg.Endpoint.RoundTrip(c, arg.Request)
+		arg.Endpoint = nil
+	} else if ep := arg.Provider.Select(arg.Request); ep != nil {
+		arg.Resp, arg.Err = ep.RoundTrip(c, arg.Request)
+	}
+	return arg.Resp, arg.Err
 }

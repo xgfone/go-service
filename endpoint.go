@@ -211,17 +211,25 @@ func CheckEndpointHealth(timeout, retryInterval time.Duration, retryNum int) Hea
 			}
 		}
 
-		_, err := retry.Call(ctx, func(context.Context) (interface{}, error) {
-			conn, err := net.DialTimeout("tcp", addr, timeout)
-			if err == nil {
-				conn.Close()
-				return nil, nil
-			}
-			return nil, err
-		})
+		_, err := retry.Call(ctx, dialTCPArg{Address: addr, Timeout: timeout}, dialTCP)
 		if err != nil {
 			return err.(error)
 		}
 		return nil
 	}
+}
+
+type dialTCPArg struct {
+	Address string
+	Timeout time.Duration
+}
+
+func dialTCP(ctx context.Context, a interface{}) (interface{}, error) {
+	arg := a.(dialTCPArg)
+	conn, err := net.DialTimeout("tcp", arg.Address, arg.Timeout)
+	if err == nil {
+		conn.Close()
+		return nil, nil
+	}
+	return nil, err
 }
