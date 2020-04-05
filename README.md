@@ -66,17 +66,11 @@ func main() {
 	lb := service.NewLoadBalancer(nil)
 	hc := service.NewHealthCheck()
 	hc.AddUpdater(lb.EndpointManager())
+	defer hc.Stop()
+
 	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.1:80", nil), interval, timeout)
 	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.2:80", nil), interval, timeout)
 	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.3:80", nil), interval, timeout)
-	//
-	// Or you can do this by using StatusLoadBalancer as follow,
-	// which is the union of LoadBalancer and HealthCheck.
-	//
-	// lb := service.NewStatusLoadBalancer(nil)
-	// lb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.1:80", nil), interval, timeout)
-	// lb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.2:80", nil), interval, timeout)
-	// lb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.3:80", nil), interval, timeout)
 
 	// Wait to check the health status of all end endpoints.
 	time.Sleep(time.Second)
@@ -121,10 +115,14 @@ import (
 func init() {
 	timeout := time.Second
 	interval := time.Second * 5
-	lb := service.NewStatusLoadBalancer(nil)
-	lb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.1:80", nil), interval, timeout)
-	lb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.2:80", nil), interval, timeout)
-	lb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.3:80", nil), interval, timeout)
+
+	lb := service.NewLoadBalancer(nil)
+	hc := service.NewHealthCheck()
+	hc.AddUpdater(lb.EndpointManager())
+
+	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.1:80", nil), interval, timeout)
+	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.2:80", nil), interval, timeout)
+	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.3:80", nil), interval, timeout)
 
 	getrt := func(key string) service.RoundTripper {
 		if key == "127.0.0.1:80" {
@@ -275,10 +273,15 @@ func (r request) ReadResponse(conn *net.TCPConn) (resp service.Response, err err
 func main() {
 	timeout := time.Second
 	interval := time.Second * 5
-	lb := service.NewStatusLoadBalancer(nil)
-	lb.AddEndpoint(service.NewTCPEndpoint("192.168.1.1:80", dial, 10, time.Second), interval, timeout)
-	lb.AddEndpoint(service.NewTCPEndpoint("192.168.1.2:80", dial, 10, time.Second), interval, timeout)
-	lb.AddEndpoint(service.NewTCPEndpoint("192.168.1.3:80", dial, 10, time.Second), interval, timeout)
+
+	lb := service.NewLoadBalancer(nil)
+	hc := service.NewHealthCheck()
+	hc.AddUpdater(lb.EndpointManager())
+	defer hc.Stop()
+
+	hc.AddEndpoint(service.NewTCPEndpoint("192.168.1.1:80", dial, 10, time.Second), interval, timeout)
+	hc.AddEndpoint(service.NewTCPEndpoint("192.168.1.2:80", dial, 10, time.Second), interval, timeout)
+	hc.AddEndpoint(service.NewTCPEndpoint("192.168.1.3:80", dial, 10, time.Second), interval, timeout)
 
 	// Wait to check the health status of all end endpoints.
 	time.Sleep(time.Second)
@@ -351,12 +354,16 @@ func main() {
 	timeout := time.Second
 	interval := time.Second * 5
 
-	slb := service.NewStatusLoadBalancer(nil)
-	slb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.1:80", nil), interval, timeout)
-	slb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.2:80", nil), interval, timeout)
-	slb.AddEndpoint(service.NewHTTPEndpoint("192.168.1.3:80", nil), interval, timeout)
+	lb := service.NewLoadBalancer(nil)
+	hc := service.NewHealthCheck()
+	hc.AddUpdater(lb.EndpointManager())
+	defer hc.Stop()
 
-	http.ListenAndServe(":8000", proxyHandler(slb.LoadBalancer))
+	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.1:80", nil), interval, timeout)
+	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.2:80", nil), interval, timeout)
+	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.3:80", nil), interval, timeout)
+
+	http.ListenAndServe(":8000", proxyHandler(lb))
 }
 ```
 
@@ -408,7 +415,7 @@ func (r request) Read(conn *net.TCPConn) (resp service.Response, err error) {
 	return buf.Bytes(), nil
 }
 
-func proxy(lb *service.StatusLoadBalancer, conn *net.TCPConn) {
+func proxy(lb *service.LoadBalancer, conn *net.TCPConn) {
 	defer conn.Close()
 
 	raddr := conn.RemoteAddr().String()
@@ -445,10 +452,15 @@ func proxy(lb *service.StatusLoadBalancer, conn *net.TCPConn) {
 func main() {
 	timeout := time.Second
 	interval := time.Second * 5
-	lb := service.NewStatusLoadBalancer(nil)
-	lb.AddEndpoint(service.NewTCPEndpoint("192.168.1.1:80", dial, 10, time.Second), interval, timeout)
-	lb.AddEndpoint(service.NewTCPEndpoint("192.168.1.2:80", dial, 10, time.Second), interval, timeout)
-	lb.AddEndpoint(service.NewTCPEndpoint("192.168.1.3:80", dial, 10, time.Second), interval, timeout)
+
+	lb := service.NewLoadBalancer(nil)
+	hc := service.NewHealthCheck()
+	hc.AddUpdater(lb.EndpointManager())
+	defer hc.Stop()
+
+	hc.AddEndpoint(service.NewTCPEndpoint("192.168.1.1:80", dial, 10, time.Second), interval, timeout)
+	hc.AddEndpoint(service.NewTCPEndpoint("192.168.1.2:80", dial, 10, time.Second), interval, timeout)
+	hc.AddEndpoint(service.NewTCPEndpoint("192.168.1.3:80", dial, 10, time.Second), interval, timeout)
 
 	addr, _ := net.ResolveTCPAddr("tcp", ":8000")
 	ln, err := net.ListenTCP("tcp", addr)
