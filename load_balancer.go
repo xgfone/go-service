@@ -42,7 +42,11 @@ type LoadBalancer struct {
 	// But it can be set to nil to disable it.
 	Session SessionManager
 
-	// FailRetry is used to retry when failing, which is FailOver(0) by default.
+	// FailRetry is used to retry when failing, which is by default:
+	//
+	//     FailOver(0, retry.DefaultRetryNewer(time.Millisecond*10))
+	//
+	// However, you can set it to nil to disable it.
 	FailRetry FailRetry
 }
 
