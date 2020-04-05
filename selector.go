@@ -122,7 +122,7 @@ func WeightSelector() Selector {
 	return SelectorFunc("weight", func(req Request, eps Endpoints) Endpoint {
 		length := len(eps)
 		sameWeight := true
-		firstWeight := getWeight(ep)
+		firstWeight := getWeight(eps[0])
 		totalWeight := firstWeight
 
 		weights := make([]int, length)
