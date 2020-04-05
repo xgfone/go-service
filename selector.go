@@ -18,7 +18,10 @@ import (
 	"encoding/binary"
 	"math/rand"
 	"net"
+	"time"
 )
+
+var random = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 // Selector is used to to select the active endpoint to be used.
 //
@@ -29,6 +32,9 @@ type Selector interface {
 
 	// Select returns the index of the selected endpoint from endpoints
 	// by the request.
+	//
+	// Notice: it is thread-safe, so the implementation does not need
+	// to use the lock. And the number of endpoints is a positive integer.
 	Select(request Request, endpoints Endpoints) Endpoint
 }
 
@@ -49,7 +55,7 @@ func SelectorFunc(name string, s func(Request, Endpoints) Endpoint) Selector {
 // whose name is "random".
 func RandomSelector() Selector {
 	return SelectorFunc("random", func(req Request, eps Endpoints) Endpoint {
-		return eps[rand.Intn(len(eps))]
+		return eps[random.Intn(len(eps))]
 	})
 }
 
@@ -114,29 +120,32 @@ func WeightSelector() Selector {
 	}
 
 	return SelectorFunc("weight", func(req Request, eps Endpoints) Endpoint {
-		var lastWeight int
-		var totalWeight int
-
+		length := len(eps)
 		sameWeight := true
-		for i, ep := range eps {
-			weight := getWeight(ep)
+		firstWeight := getWeight(ep)
+		totalWeight := firstWeight
+
+		weights := make([]int, length)
+		weights[0] = firstWeight
+
+		for i := 1; i < length; i++ {
+			weight := getWeight(eps[i])
+			weights[i] = weight
 			totalWeight += weight
-			if i == 0 {
-				lastWeight = weight
-			} else if sameWeight && weight != lastWeight {
+			if sameWeight && weight != firstWeight {
 				sameWeight = false
 			}
 		}
 
-		if sameWeight || totalWeight == 0 {
-			offset := rand.Intn(totalWeight)
-			for _, ep := range eps {
-				if offset -= getWeight(ep); offset < 0 {
-					return ep
+		if !sameWeight && totalWeight > 0 {
+			offset := random.Intn(totalWeight)
+			for i := 0; i < length; i++ {
+				if offset -= weights[i]; offset < 0 {
+					return eps[i]
 				}
 			}
 		}
 
-		return eps[rand.Intn(len(eps))]
+		return eps[random.Intn(len(eps))]
 	})
 }
