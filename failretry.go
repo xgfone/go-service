@@ -109,11 +109,12 @@ func (r failRetry) Retry(ctx context.Context, req Request, ep Endpoint,
 	}
 
 	arg := &failRetryArg{Request: req, Endpoint: ep, Provider: p}
-	r.retryf(num).Call(ctx, arg, r.call)
+	r.retryf(num).Call(ctx, r.call, arg)
 	return arg.Resp, arg.Err
 }
-func (r failRetry) call(c context.Context, a interface{}) (interface{}, error) {
-	arg := a.(*failRetryArg)
+func (r failRetry) call(c context.Context, args ...interface{}) (interface{}, error) {
+	arg := args[0].(*failRetryArg)
+
 	if r.sameep {
 		arg.Resp, arg.Err = arg.Endpoint.RoundTrip(c, arg.Request)
 	} else if arg.Endpoint != nil {

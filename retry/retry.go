@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package retry implements some retry policies to call a function.
 package retry
 
 import (
@@ -24,7 +25,7 @@ import (
 var ErrEndRetry = errors.New("end to retry")
 
 // Caller is the caller function.
-type Caller func(ctx context.Context, arg interface{}) (result interface{}, err error)
+type Caller func(ctx context.Context, args ...interface{}) (result interface{}, err error)
 
 // Retry is used to retry a function call when it returns an error.
 type Retry interface {
@@ -33,7 +34,7 @@ type Retry interface {
 	//
 	// Notice: the callee maybe return ErrEndRetry to end to retry,
 	// and the implementation must support it.
-	Call(ctx context.Context, arg interface{}, callee Caller) (result interface{}, err error)
+	Call(ctx context.Context, callee Caller, args ...interface{}) (result interface{}, err error)
 }
 
 // DefaultRetryNewer returns a new default retry newer, which is used to create
@@ -56,8 +57,8 @@ type intervalRetry struct {
 	interval time.Duration
 }
 
-func (r intervalRetry) Call(c context.Context, a interface{}, f Caller) (interface{}, error) {
-	result, err := f(c, a)
+func (r intervalRetry) Call(c context.Context, f Caller, a ...interface{}) (interface{}, error) {
+	result, err := f(c, a...)
 
 FOR:
 	for number := r.number; err != nil && number > 0; number-- {
@@ -77,7 +78,7 @@ FOR:
 			}
 		}
 
-		result, err = f(c, a)
+		result, err = f(c, a...)
 	}
 
 	return result, err
@@ -99,8 +100,8 @@ type doubleDelayRetry struct {
 	end    time.Duration
 }
 
-func (r doubleDelayRetry) Call(c context.Context, a interface{}, f Caller) (interface{}, error) {
-	result, err := f(c, a)
+func (r doubleDelayRetry) Call(c context.Context, f Caller, a ...interface{}) (interface{}, error) {
+	result, err := f(c, a...)
 
 FOR:
 	for number, start := r.number, r.start; err != nil && number > 0; number-- {
@@ -112,7 +113,7 @@ FOR:
 			break FOR
 		}
 
-		if result, err = f(c, a); err != nil {
+		if result, err = f(c, a...); err != nil {
 			if start = start * 2; r.end > 0 && start > r.end {
 				start = r.end
 			}
