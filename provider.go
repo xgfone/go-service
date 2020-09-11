@@ -166,11 +166,7 @@ func (p *GeneralProvider) delEndpointByString(endpoint string) {
 func (p *GeneralProvider) IsActive(endpoint Endpoint) (active bool) {
 	addr := endpoint.String()
 	p.lock.RLock()
-	for _, ep := range p.endpoints {
-		if ep.String() == addr {
-			active = true
-		}
-	}
+	active = binarySearch(p.endpoints, addr) > -1
 	p.lock.RUnlock()
 	return
 }
@@ -183,4 +179,20 @@ func (p *GeneralProvider) Select(req Request) (endpoint Endpoint) {
 	}
 	p.lock.RUnlock()
 	return
+}
+
+func binarySearch(eps Endpoints, ep string) int {
+	for low, high := 0, len(eps)-1; low <= high; {
+		mid := (low + high)
+		_ep := eps[mid].String()
+		if ep == _ep {
+			return mid
+		} else if ep < _ep {
+			high = mid - 1
+		} else {
+			low = mid + 1
+		}
+	}
+
+	return -1
 }
