@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package httputil supplies the middleware and the wrapper of http.RoundTripper.
 package httputil
 
 import (
