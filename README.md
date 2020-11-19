@@ -38,7 +38,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/xgfone/go-service"
+	"github.com/xgfone/go-service/loadbalancer"
 )
 
 type request struct {
@@ -54,7 +54,7 @@ func newRequest(method, urlTmp string, body io.Reader) request {
 }
 
 func (r request) RemoteAddrString() string { return "" }
-func (r request) ToHTTPRequest(ctx context.Context, ep service.Endpoint) (*http.Request, error) {
+func (r request) ToHTTPRequest(ctx context.Context, ep loadbalancer.Endpoint) (*http.Request, error) {
 	url := fmt.Sprintf(r.urlTmp, ep.String())
 	return http.NewRequestWithContext(ctx, r.method, url, r.body)
 }
@@ -63,14 +63,14 @@ func main() {
 	timeout := time.Second
 	interval := time.Second * 5
 
-	lb := service.NewLoadBalancer(nil)
-	hc := service.NewHealthCheck()
+	lb := loadbalancer.NewLoadBalancer(nil)
+	hc := loadbalancer.NewHealthCheck()
 	hc.AddUpdater(lb.EndpointManager())
 	defer hc.Stop()
 
-	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.1:80", nil), interval, timeout)
-	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.2:80", nil), interval, timeout)
-	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.3:80", nil), interval, timeout)
+	hc.AddEndpoint(loadbalancer.NewHTTPEndpoint("192.168.1.1:80", nil), interval, timeout)
+	hc.AddEndpoint(loadbalancer.NewHTTPEndpoint("192.168.1.2:80", nil), interval, timeout)
+	hc.AddEndpoint(loadbalancer.NewHTTPEndpoint("192.168.1.3:80", nil), interval, timeout)
 
 	// Wait to check the health status of all end endpoints.
 	time.Sleep(time.Second)
@@ -109,28 +109,28 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/xgfone/go-service"
+	"github.com/xgfone/go-service/loadbalancer"
 )
 
 func init() {
 	timeout := time.Second
 	interval := time.Second * 5
 
-	lb := service.NewLoadBalancer(nil)
-	hc := service.NewHealthCheck()
+	lb := loadbalancer.NewLoadBalancer(nil)
+	hc := loadbalancer.NewHealthCheck()
 	hc.AddUpdater(lb.EndpointManager())
 
-	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.1:80", nil), interval, timeout)
-	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.2:80", nil), interval, timeout)
-	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.3:80", nil), interval, timeout)
+	hc.AddEndpoint(loadbalancer.NewHTTPEndpoint("192.168.1.1:80", nil), interval, timeout)
+	hc.AddEndpoint(loadbalancer.NewHTTPEndpoint("192.168.1.2:80", nil), interval, timeout)
+	hc.AddEndpoint(loadbalancer.NewHTTPEndpoint("192.168.1.3:80", nil), interval, timeout)
 
-	getrt := func(key string) service.RoundTripper {
+	getrt := func(key string) loadbalancer.RoundTripper {
 		if key == "127.0.0.1:80" {
 			return lb
 		}
 		return nil
 	}
-	http.DefaultClient.Transport = service.ToHTTPRoundTripper(getrt)
+	http.DefaultClient.Transport = loadbalancer.ToHTTPRoundTripper(getrt)
 }
 
 func printResponse(resp *http.Response, err error) {
@@ -174,22 +174,22 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/xgfone/go-service"
+	"github.com/xgfone/go-service/loadbalancer"
 )
 
-func initProxy(hc *service.HealthCheck) {
-	endpoint1 := service.NewHTTPEndpoint("192.168.1.1:80", nil)
-	endpoint2 := service.NewHTTPEndpoint("192.168.1.1:80", nil)
-	endpoint3 := service.NewHTTPEndpoint("192.168.1.1:80", nil)
+func initProxy(hc *loadbalancer.HealthCheck) {
+	endpoint1 := loadbalancer.NewHTTPEndpoint("192.168.1.1:80", nil)
+	endpoint2 := loadbalancer.NewHTTPEndpoint("192.168.1.1:80", nil)
+	endpoint3 := loadbalancer.NewHTTPEndpoint("192.168.1.1:80", nil)
 
-	lb := service.NewLoadBalancerGroup()
+	lb := loadbalancer.NewLoadBalancerGroup()
 	lb.SetHealthCheck(hc, time.Second*5, time.Second)
 	lb.AddEndpoint("app1", endpoint1)
 	lb.AddEndpoint("app1", endpoint2)
 	lb.AddEndpoint("app2", endpoint2)
 	lb.AddEndpoint("app2", endpoint3)
 
-	http.DefaultClient.Transport = service.ToHTTPRoundTripper(lb.GetRoundTripper)
+	http.DefaultClient.Transport = loadbalancer.ToHTTPRoundTripper(lb.GetRoundTripper)
 }
 
 func printResponse(resp *http.Response, err error) {
@@ -209,7 +209,7 @@ func printResponse(resp *http.Response, err error) {
 }
 
 func main() {
-	hc := service.NewHealthCheck()
+	hc := loadbalancer.NewHealthCheck()
 	defer hc.Stop()
 	initProxy(hc)
 
@@ -239,7 +239,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/xgfone/go-service"
+	"github.com/xgfone/go-service/loadbalancer"
 )
 
 func dial(ctx context.Context, address string) (net.Conn, error) { return net.Dial("tcp", address) }
@@ -255,7 +255,7 @@ func (r request) SendRequest(conn *net.TCPConn) (err error) {
 	return
 }
 
-func (r request) ReadResponse(conn *net.TCPConn) (resp service.Response, err error) {
+func (r request) ReadResponse(conn *net.TCPConn) (resp loadbalancer.Response, err error) {
 	var length uint32
 	if err = binary.Read(conn, binary.BigEndian, &length); err != nil {
 		return
@@ -274,14 +274,14 @@ func main() {
 	timeout := time.Second
 	interval := time.Second * 5
 
-	lb := service.NewLoadBalancer(nil)
-	hc := service.NewHealthCheck()
+	lb := loadbalancer.NewLoadBalancer(nil)
+	hc := loadbalancer.NewHealthCheck()
 	hc.AddUpdater(lb.EndpointManager())
 	defer hc.Stop()
 
-	hc.AddEndpoint(service.NewTCPEndpoint("192.168.1.1:80", dial, 10, time.Second), interval, timeout)
-	hc.AddEndpoint(service.NewTCPEndpoint("192.168.1.2:80", dial, 10, time.Second), interval, timeout)
-	hc.AddEndpoint(service.NewTCPEndpoint("192.168.1.3:80", dial, 10, time.Second), interval, timeout)
+	hc.AddEndpoint(loadbalancer.NewTCPEndpoint("192.168.1.1:80", dial, 10, time.Second), interval, timeout)
+	hc.AddEndpoint(loadbalancer.NewTCPEndpoint("192.168.1.2:80", dial, 10, time.Second), interval, timeout)
+	hc.AddEndpoint(loadbalancer.NewTCPEndpoint("192.168.1.3:80", dial, 10, time.Second), interval, timeout)
 
 	// Wait to check the health status of all end endpoints.
 	time.Sleep(time.Second)
@@ -292,7 +292,7 @@ func main() {
 
 	// Send the request and get the response.
 	req := request{Data: "THE SENT DATA"}
-	res, err := lb.RoundTrip(context.Background(), service.NewTCPRequest("", req.SendRequest, req.ReadResponse))
+	res, err := lb.RoundTrip(context.Background(), loadbalancer.NewTCPRequest("", req.SendRequest, req.ReadResponse))
 	if err != nil {
 		fmt.Println(err)
 	} else {
@@ -314,13 +314,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/xgfone/go-service"
+	"github.com/xgfone/go-service/loadbalancer"
 )
 
 type request http.Request
 
 func (r *request) RemoteAddrString() string { return r.RemoteAddr }
-func (r *request) ToHTTPRequest(ctx context.Context, ep service.Endpoint) (*http.Request, error) {
+func (r *request) ToHTTPRequest(ctx context.Context, ep loadbalancer.Endpoint) (*http.Request, error) {
 	url := fmt.Sprintf("http://%s%s", ep.String(), r.RequestURI)
 	req, _ := http.NewRequestWithContext(ctx, r.Method, url, r.Body)
 	req.Header.Set("X-Forwarded-For", r.RemoteAddr)
@@ -329,7 +329,7 @@ func (r *request) ToHTTPRequest(ctx context.Context, ep service.Endpoint) (*http
 	return req, nil
 }
 
-func proxyHandler(lb *service.LoadBalancer) http.Handler {
+func proxyHandler(lb *loadbalancer.LoadBalancer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp, err := lb.RoundTrip(context.Background(), (*request)(r))
 		if err != nil {
@@ -354,14 +354,14 @@ func main() {
 	timeout := time.Second
 	interval := time.Second * 5
 
-	lb := service.NewLoadBalancer(nil)
-	hc := service.NewHealthCheck()
+	lb := loadbalancer.NewLoadBalancer(nil)
+	hc := loadbalancer.NewHealthCheck()
 	hc.AddUpdater(lb.EndpointManager())
 	defer hc.Stop()
 
-	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.1:80", nil), interval, timeout)
-	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.2:80", nil), interval, timeout)
-	hc.AddEndpoint(service.NewHTTPEndpoint("192.168.1.3:80", nil), interval, timeout)
+	hc.AddEndpoint(loadbalancer.NewHTTPEndpoint("192.168.1.1:80", nil), interval, timeout)
+	hc.AddEndpoint(loadbalancer.NewHTTPEndpoint("192.168.1.2:80", nil), interval, timeout)
+	hc.AddEndpoint(loadbalancer.NewHTTPEndpoint("192.168.1.3:80", nil), interval, timeout)
 
 	http.ListenAndServe(":8000", proxyHandler(lb))
 }
@@ -384,7 +384,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/xgfone/go-service"
+	"github.com/xgfone/go-service/loadbalancer"
 )
 
 func dial(ctx context.Context, address string) (net.Conn, error) { return net.Dial("tcp", address) }
@@ -400,7 +400,7 @@ func (r request) Send(conn *net.TCPConn) (err error) {
 	return
 }
 
-func (r request) Read(conn *net.TCPConn) (resp service.Response, err error) {
+func (r request) Read(conn *net.TCPConn) (resp loadbalancer.Response, err error) {
 	var length uint32
 	if err = binary.Read(conn, binary.BigEndian, &length); err != nil {
 		return
@@ -415,7 +415,7 @@ func (r request) Read(conn *net.TCPConn) (resp service.Response, err error) {
 	return buf.Bytes(), nil
 }
 
-func proxy(lb *service.LoadBalancer, conn *net.TCPConn) {
+func proxy(lb *loadbalancer.LoadBalancer, conn *net.TCPConn) {
 	defer conn.Close()
 
 	raddr := conn.RemoteAddr().String()
@@ -433,7 +433,7 @@ func proxy(lb *service.LoadBalancer, conn *net.TCPConn) {
 		r.Data = resp.([]byte)
 
 		// Write the data to the destination and get the response.
-		req := service.NewTCPRequest(raddr, r.Send, r.Read)
+		req := loadbalancer.NewTCPRequest(raddr, r.Send, r.Read)
 		resp, err = lb.RoundTrip(context.Background(), req)
 		if err != nil {
 			fmt.Printf("fail to send the data to the destination: %v\n", err)
@@ -453,14 +453,14 @@ func main() {
 	timeout := time.Second
 	interval := time.Second * 5
 
-	lb := service.NewLoadBalancer(nil)
-	hc := service.NewHealthCheck()
+	lb := loadbalancer.NewLoadBalancer(nil)
+	hc := loadbalancer.NewHealthCheck()
 	hc.AddUpdater(lb.EndpointManager())
 	defer hc.Stop()
 
-	hc.AddEndpoint(service.NewTCPEndpoint("192.168.1.1:80", dial, 10, time.Second), interval, timeout)
-	hc.AddEndpoint(service.NewTCPEndpoint("192.168.1.2:80", dial, 10, time.Second), interval, timeout)
-	hc.AddEndpoint(service.NewTCPEndpoint("192.168.1.3:80", dial, 10, time.Second), interval, timeout)
+	hc.AddEndpoint(loadbalancer.NewTCPEndpoint("192.168.1.1:80", dial, 10, time.Second), interval, timeout)
+	hc.AddEndpoint(loadbalancer.NewTCPEndpoint("192.168.1.2:80", dial, 10, time.Second), interval, timeout)
+	hc.AddEndpoint(loadbalancer.NewTCPEndpoint("192.168.1.3:80", dial, 10, time.Second), interval, timeout)
 
 	addr, _ := net.ResolveTCPAddr("tcp", ":8000")
 	ln, err := net.ListenTCP("tcp", addr)
