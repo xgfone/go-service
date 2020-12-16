@@ -82,7 +82,7 @@ type IntervalRunnerConfig struct {
 
 	// The clock tick interval.
 	//
-	// Default: 1s
+	// Default: 5s
 	Tick time.Duration
 
 	// Report whether the tasks can be run or not.
@@ -97,7 +97,7 @@ func (c *IntervalRunnerConfig) init() {
 		c.Interval = time.Minute
 	}
 	if c.Tick == 0 {
-		c.Tick = time.Second
+		c.Tick = time.Second * 5
 	}
 }
 
