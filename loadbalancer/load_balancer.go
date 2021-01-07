@@ -106,7 +106,9 @@ func (lb *LoadBalancer) deleteEndpointFromSession(addr string) {
 func (lb *LoadBalancer) getEndpoint(req Request) (ep Endpoint) {
 	raddr := req.RemoteAddrString()
 	if sreq, ok := req.(RequestSession); ok {
-		raddr = sreq.SessionID()
+		if sid := sreq.SessionID(); sid != "" {
+			raddr = sid
+		}
 	}
 
 	ep = lb.getEndpointFromSession(raddr)
@@ -127,7 +129,9 @@ func (lb *LoadBalancer) getEndpoint(req Request) (ep Endpoint) {
 func (lb *LoadBalancer) selectEndpoint(req Request) (ep Endpoint) {
 	raddr := req.RemoteAddrString()
 	if sreq, ok := req.(RequestSession); ok {
-		raddr = sreq.SessionID()
+		if sid := sreq.SessionID(); sid != "" {
+			raddr = sid
+		}
 	}
 
 	lb.deleteEndpointFromSession(raddr)
