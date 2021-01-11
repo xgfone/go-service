@@ -29,11 +29,9 @@ type FailRetry interface {
 	// Retry calls the endpoint to finish the service. If the endpoint returns
 	// the error, it will retry it.
 	//
-	// ep is the initial endpoint, which must not be nil, but you can get a new
-	// one from Provider instead of it when retrying the service.
-	//
-	// Notice: you should call the initial endpoint firstly, and retry it agent
-	// if it returns the error.
+	// ep is the initial endpoint, which failed to be call, so the request
+	// should be retried to call by the initial endpoint or a new one from
+	// Provider instead.
 	Retry(c context.Context, r Request, ep Endpoint, p Provider) (Response, error)
 }
 
@@ -87,9 +85,6 @@ type failRetryArg struct {
 	Request
 	Endpoint
 	Provider
-
-	Resp Response
-	Err  error
 }
 
 type failRetry struct {
@@ -105,23 +100,26 @@ func (r failRetry) Retry(ctx context.Context, req Request, ep Endpoint,
 	p Provider) (Response, error) {
 	num := r.maxnum
 	if num == 0 {
-		num = p.Len()
+		if num = p.Len(); num == 0 {
+			return nil, ErrNoAvailableEndpoint
+		}
 	}
 
-	arg := &failRetryArg{Request: req, Endpoint: ep, Provider: p}
-	r.retryf(num).Call(ctx, r.call, arg)
-	return arg.Resp, arg.Err
+	resp, err := r.retryf(num-1).Call(ctx, r.call, req, ep, p)
+	if err == retry.ErrEndRetry {
+		err = ErrNoAvailableEndpoint
+	}
+	return resp, err
 }
 func (r failRetry) call(c context.Context, args ...interface{}) (interface{}, error) {
-	arg := args[0].(*failRetryArg)
-
 	if r.sameep {
-		arg.Resp, arg.Err = arg.Endpoint.RoundTrip(c, arg.Request)
-	} else if arg.Endpoint != nil {
-		arg.Resp, arg.Err = arg.Endpoint.RoundTrip(c, arg.Request)
-		arg.Endpoint = nil
-	} else if ep := arg.Provider.Select(arg.Request); ep != nil {
-		arg.Resp, arg.Err = ep.RoundTrip(c, arg.Request)
+		return args[1].(Endpoint).RoundTrip(c, args[0].(Request))
 	}
-	return arg.Resp, arg.Err
+
+	req := args[0].(Request)
+	if ep := args[2].(Provider).Select(req); ep != nil {
+		return ep.RoundTrip(c, req)
+	}
+
+	return nil, retry.ErrEndRetry
 }

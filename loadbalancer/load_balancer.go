@@ -144,13 +144,22 @@ func (lb *LoadBalancer) selectEndpoint(req Request) (ep Endpoint) {
 // RoundTrip selects an endpoint, then call it. If failed, it will retry it
 // by the fail handler.
 func (lb *LoadBalancer) RoundTrip(c context.Context, r Request) (Response, error) {
-	if endpoint := lb.getEndpoint(r); endpoint == nil {
+	endpoint := lb.getEndpoint(r)
+	if endpoint == nil {
 		return nil, ErrNoAvailableEndpoint
-	} else if lb.FailRetry == nil {
-		return endpoint.RoundTrip(c, r)
-	} else {
-		return lb.FailRetry.Retry(c, r, endpoint, lbProvider{lb})
 	}
+
+	resp, err := endpoint.RoundTrip(c, r)
+	if err == nil || lb.FailRetry == nil {
+		return resp, err
+	}
+
+	resp, err2 := lb.FailRetry.Retry(c, r, endpoint, lbProvider{lb})
+	if err2 != ErrNoAvailableEndpoint {
+		err = err2
+	}
+
+	return resp, err
 }
 
 type lbProvider struct{ *LoadBalancer }

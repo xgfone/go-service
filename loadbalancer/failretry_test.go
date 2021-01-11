@@ -85,7 +85,6 @@ func TestFailTry(t *testing.T) {
 		"2.2.2.2:80",
 		"2.2.2.2:80",
 		"2.2.2.2:80",
-		"2.2.2.2:80",
 		"error",
 	}
 
@@ -120,7 +119,6 @@ func TestFailOver(t *testing.T) {
 	}
 
 	expectLines := []string{
-		"2.2.2.2:80",
 		"3.3.3.3:80",
 		"1.1.1.1:80",
 		"2.2.2.2:80",
