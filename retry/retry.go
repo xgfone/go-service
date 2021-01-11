@@ -62,6 +62,10 @@ func (r intervalRetry) Call(c context.Context, f Caller, a ...interface{}) (inte
 
 FOR:
 	for number := r.number; err != nil && number > 0; number-- {
+		if err == ErrEndRetry {
+			break
+		}
+
 		if r.interval > 0 {
 			timer := time.NewTimer(r.interval)
 			select {
@@ -105,6 +109,10 @@ func (r doubleDelayRetry) Call(c context.Context, f Caller, a ...interface{}) (i
 
 FOR:
 	for number, start := r.number, r.start; err != nil && number > 0; number-- {
+		if err == ErrEndRetry {
+			break
+		}
+
 		timer := time.NewTimer(start)
 		select {
 		case <-timer.C:
