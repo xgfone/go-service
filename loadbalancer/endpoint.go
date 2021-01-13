@@ -34,7 +34,7 @@ type RequestSession interface {
 	// It maybe return the remote address as the session id. In this case,
 	// you does not need to implement it, it will RemoteAddrString() instead.
 	//
-	// Notice: it should not return an empty string.
+	// Notice: it maybe return an empty string.
 	SessionID() string
 }
 
