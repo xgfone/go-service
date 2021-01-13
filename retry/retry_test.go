@@ -78,3 +78,37 @@ func TestNewDoubleDelayRetry(t *testing.T) {
 		t.Error(cost)
 	}
 }
+
+func benchmarRetryCaller(context.Context, ...interface{}) (interface{}, error) {
+	return true, nil
+}
+
+func BenchmarkIntervalRetryWithoutArgs(b *testing.B) {
+	retry := NewIntervalRetry(1, 0)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		retry.Call(context.Background(), benchmarRetryCaller)
+	}
+}
+
+func BenchmarkIntervalRetryWithOneArg(b *testing.B) {
+	retry := NewIntervalRetry(1, 0)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		retry.Call(context.Background(), benchmarRetryCaller, 1)
+	}
+}
+
+func BenchmarkIntervalRetryWithTwoArgs(b *testing.B) {
+	retry := NewIntervalRetry(1, 0)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		retry.Call(context.Background(), benchmarRetryCaller, 1, 2)
+	}
+}
