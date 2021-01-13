@@ -81,12 +81,6 @@ func FailOver(maxnum int, retryf func(maxnum int) retry.Retry) FailRetry {
 	return failRetry{name: name, maxnum: maxnum, retryf: retryf}
 }
 
-type failRetryArg struct {
-	Request
-	Endpoint
-	Provider
-}
-
 type failRetry struct {
 	name   string
 	sameep bool
