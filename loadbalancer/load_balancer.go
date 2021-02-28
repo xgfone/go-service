@@ -72,6 +72,19 @@ func (lb *LoadBalancer) String() string {
 	return fmt.Sprintf("LoadBalancer(name=%s)", lb.Name)
 }
 
+// Updater returns the updater of the load balancer.
+func (lb *LoadBalancer) Updater() Updater {
+	return UpdaterFunc(lb.Name, lb.updateEndpoint)
+}
+
+func (lb *LoadBalancer) updateEndpoint(addOrDel bool, ep Endpoint) {
+	if addOrDel {
+		lb.EndpointManager().AddEndpoint(ep)
+	} else {
+		lb.EndpointManager().DelEndpoint(ep)
+	}
+}
+
 // ProviderSelector returns the ProviderSelector if the provider has implemented
 // the interface ProviderSelector. Or returns nil instead.
 func (lb *LoadBalancer) ProviderSelector() ProviderSelector {
