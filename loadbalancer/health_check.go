@@ -55,7 +55,7 @@ type endpointWrapper struct {
 	Endpoint
 
 	exit     chan struct{}
-	tick     *time.Ticker
+	tick     ticker
 	lock     sync.RWMutex
 	timeout  time.Duration
 	interval time.Duration
@@ -73,7 +73,7 @@ func newEndpointWrapper(ep Endpoint, interval, timeout time.Duration, retryNum i
 	return &endpointWrapper{
 		Endpoint: ep,
 		exit:     make(chan struct{}),
-		tick:     time.NewTicker(interval),
+		tick:     newTicker(interval),
 		timeout:  timeout,
 		interval: interval,
 		retryNum: retryNum,
@@ -140,7 +140,7 @@ func (epw *endpointWrapper) Check(hc *HealthCheck) {
 			return
 		case <-epw.exit:
 			return
-		case <-epw.tick.C:
+		case <-epw.tick.TimeChan():
 			epw.check(hc)
 		}
 	}
