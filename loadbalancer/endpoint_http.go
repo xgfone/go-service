@@ -66,7 +66,6 @@ func NewHTTPEndpoint(eurl string, conf *HTTPEndpointConfig) (Endpoint, error) {
 					Timeout:   30 * time.Second,
 					KeepAlive: 30 * time.Second,
 				}).DialContext,
-				ForceAttemptHTTP2:     true,
 				MaxIdleConns:          0,
 				MaxIdleConnsPerHost:   100,
 				IdleConnTimeout:       30 * time.Second,

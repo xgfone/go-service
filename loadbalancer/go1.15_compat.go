@@ -26,8 +26,9 @@ type ticker struct {
 	tick *time.Ticker
 }
 
-func newTicker(interval time.Duration) ticker {
-	return ticker{time.NewTicker(interval)}
+func newTicker(interval time.Duration) (t ticker) {
+	t.tick = time.NewTicker(interval)
+	return
 }
 
 func (t *ticker) TimeChan() <-chan time.Time {
