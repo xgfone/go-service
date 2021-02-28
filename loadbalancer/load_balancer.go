@@ -17,6 +17,7 @@ package loadbalancer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/xgfone/go-service/retry"
@@ -59,9 +60,16 @@ func NewLoadBalancer(provider Provider) *LoadBalancer {
 	}
 	return &LoadBalancer{
 		Provider:  provider,
-		Session:   NewMemorySessionManager(),
 		FailRetry: FailOver(0, retry.DefaultRetryNewer(time.Millisecond*10)),
 	}
+}
+
+// String implements the interface fmt.Stringer.
+func (lb *LoadBalancer) String() string {
+	if lb.Name == "" {
+		return "LoadBalancer"
+	}
+	return fmt.Sprintf("LoadBalancer(name=%s)", lb.Name)
 }
 
 // ProviderSelector returns the ProviderSelector if the provider has implemented

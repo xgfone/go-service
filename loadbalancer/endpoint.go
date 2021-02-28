@@ -68,6 +68,12 @@ type Endpoint interface {
 	// identity and may be the address or the url.
 	String() string
 
+	// UserData is the external data passed to the endpoint.
+	UserData() interface{}
+
+	// MetaData is the internal data of the endpoint.
+	MetaData() map[string]interface{}
+
 	// IsHealthy reports whether the current endpoint is healthy.
 	//
 	// It is used to detect whether the endpoint is still active.
@@ -85,6 +91,8 @@ func NewNoopEndpoint(addr string) Endpoint                                  { re
 func (e noopEndpoint) String() string                                       { return string(e) }
 func (e noopEndpoint) IsHealthy(context.Context) bool                       { return true }
 func (e noopEndpoint) RoundTrip(context.Context, Request) (Response, error) { return nil, nil }
+func (e noopEndpoint) UserData() interface{}                                { return nil }
+func (e noopEndpoint) MetaData() map[string]interface{}                     { return nil }
 
 /// ------------------------------------------------------------------------
 
@@ -127,7 +135,9 @@ type EndpointUnwrap interface {
 func UnwrapEndpoint(endpoint Endpoint) Endpoint {
 	for {
 		if eu, ok := endpoint.(EndpointUnwrap); ok {
-			endpoint = eu.Unwrap()
+			if ep := eu.Unwrap(); ep != nil {
+				endpoint = ep
+			}
 		} else {
 			break
 		}
@@ -184,8 +194,8 @@ func Chain(outer Middleware, others ...Middleware) Middleware {
 
 /// -------------------------------------------------------------------------
 
-// HealthChecker is used to check the health status of an endpoint.
-type HealthChecker func(context.Context, Endpoint) error
+// HealthChecker is used to check whether the address can be connected to or not.
+type HealthChecker func(c context.Context, addrOrURL string) error
 
 // CheckEndpointHealth check whether the endpoint is the healthy.
 //
@@ -197,8 +207,7 @@ type HealthChecker func(context.Context, Endpoint) error
 // not wait for the interval duration.
 func CheckEndpointHealth(timeout, retryInterval time.Duration, retryNum int) HealthChecker {
 	retry := retry.NewIntervalRetry(retryNum, retryInterval)
-	return func(ctx context.Context, endpoint Endpoint) error {
-		addr := endpoint.String()
+	return func(ctx context.Context, addr string) error {
 		if strings.HasPrefix(addr, "http") {
 			if u, err := url.Parse(addr); err != nil {
 				return err

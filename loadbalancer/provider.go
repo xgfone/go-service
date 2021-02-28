@@ -15,6 +15,7 @@
 package loadbalancer
 
 import (
+	"io"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,8 @@ import (
 
 // Provider is a provider of the endpoints.
 type Provider interface {
+	io.Closer
+
 	// Len returns the number of the endpoints.
 	Len() int
 
@@ -93,15 +96,12 @@ func (p *GeneralProvider) SetSelector(s Selector) {
 	p.lock.Unlock()
 }
 
-func (p *GeneralProvider) addEndpoints(endpoints ...Endpoint) {
-	p.endpoints = append(p.endpoints, endpoints...)
-	sort.Sort(p.endpoints)
-	p.updateLen()
-}
-
 func (p *GeneralProvider) updateLen() {
 	atomic.StoreUint32(&p.eplen, uint32(len(p.endpoints)))
 }
+
+// Close implements the interface io.Closer.
+func (p *GeneralProvider) Close() error { return nil }
 
 // Len returns the number of the endpoints.
 func (p *GeneralProvider) Len() int {
@@ -118,19 +118,11 @@ func (p *GeneralProvider) Endpoints() Endpoints {
 }
 
 // AddEndpoint adds the endpoint.
+//
+// If the endpoint has been added, do nothing.
 func (p *GeneralProvider) AddEndpoint(endpoint Endpoint) {
-	addr := endpoint.String()
-	var old Endpoint
-
 	p.lock.Lock()
-	for i, ep := range p.endpoints {
-		if ep.String() == addr {
-			p.endpoints[i] = endpoint
-			old = ep
-			break
-		}
-	}
-	if old == nil {
+	if !p.endpoints.Contains(endpoint) {
 		p.endpoints = append(p.endpoints, endpoint)
 		sort.Sort(p.endpoints)
 		p.updateLen()

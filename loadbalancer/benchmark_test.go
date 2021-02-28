@@ -75,9 +75,14 @@ type failOnceEndpoint struct {
 	Addr string
 }
 
-func newFailOnceEndpoint(addr string) Endpoint             { return &failOnceEndpoint{Addr: addr} }
-func (e *failOnceEndpoint) String() string                 { return e.Addr }
-func (e *failOnceEndpoint) IsHealthy(context.Context) bool { return true }
+func newFailOnceEndpoint(addr string) Endpoint {
+	return &failOnceEndpoint{Addr: addr}
+}
+
+func (e *failOnceEndpoint) String() string                   { return e.Addr }
+func (e *failOnceEndpoint) UserData() interface{}            { return nil }
+func (e *failOnceEndpoint) MetaData() map[string]interface{} { return nil }
+func (e *failOnceEndpoint) IsHealthy(context.Context) bool   { return true }
 func (e *failOnceEndpoint) RoundTrip(context.Context, Request) (Response, error) {
 	return nil, errFailed
 }

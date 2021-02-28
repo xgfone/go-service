@@ -29,8 +29,10 @@ type hcEndpoint struct {
 	healthy bool
 }
 
-func newHCEndpoint(addr string) Endpoint { return &hcEndpoint{addr: addr} }
-func (e *hcEndpoint) String() string     { return e.addr }
+func newHCEndpoint(addr string) Endpoint               { return &hcEndpoint{addr: addr} }
+func (e *hcEndpoint) String() string                   { return e.addr }
+func (e *hcEndpoint) UserData() interface{}            { return nil }
+func (e *hcEndpoint) MetaData() map[string]interface{} { return nil }
 func (e *hcEndpoint) IsHealthy(context.Context) bool {
 	e.healthy = !e.healthy
 	return e.healthy
@@ -38,15 +40,16 @@ func (e *hcEndpoint) IsHealthy(context.Context) bool {
 func (e *hcEndpoint) RoundTrip(context.Context, Request) (Response, error) { return nil, nil }
 
 type hcUpdater struct {
+	name string
 	sync.RWMutex
 	buf *bytes.Buffer
 }
 
-func (u *hcUpdater) String() string {
-	u.Lock()
-	defer u.Unlock()
-	return u.buf.String()
+func newHcUpdater(name string) *hcUpdater {
+	return &hcUpdater{name: name, buf: bytes.NewBufferString("\n")}
 }
+func (u *hcUpdater) Name() string   { return u.name }
+func (u *hcUpdater) String() string { u.Lock(); defer u.Unlock(); return u.buf.String() }
 func (u *hcUpdater) AddEndpoint(e Endpoint) {
 	u.Lock()
 	defer u.Unlock()
@@ -61,12 +64,12 @@ func (u *hcUpdater) DelEndpoint(e Endpoint) {
 func TestHealthChecker(t *testing.T) {
 	hc := NewHealthCheck()
 
-	updater := &hcUpdater{buf: bytes.NewBufferString("\n")}
-	hc.AddUpdater(updater)
+	updater := newHcUpdater("all")
+	hc.Subscribe("", updater)
 
-	interval := time.Millisecond * 50
-	hc.AddEndpoint(newHCEndpoint("1.1.1.1:80"), interval, 0)
-	hc.AddEndpoint(newHCEndpoint("2.2.2.2:80"), interval, 0)
+	hc.Interval = time.Millisecond * 50
+	hc.AddEndpoint(newHCEndpoint("1.1.1.1:80"))
+	hc.AddEndpoint(newHCEndpoint("2.2.2.2:80"))
 
 	time.Sleep(time.Second)
 	hc.Stop()
@@ -98,17 +101,12 @@ func TestHealthChecker(t *testing.T) {
 	}
 }
 
-type testUpdater struct{ name string }
-
-func (u testUpdater) AddEndpoint(ep Endpoint) {}
-func (u testUpdater) DelEndpoint(ep Endpoint) {}
-
 func TestHealthCheck_Unsubscribe(t *testing.T) {
 	hc := NewHealthCheck()
 
-	sub1 := UpdaterFunc(func(bool, Endpoint) {})
-	sub2 := UpdaterFunc(func(bool, Endpoint) {})
-	sub3 := UpdaterFunc(func(bool, Endpoint) {})
+	sub1 := UpdaterFunc("updater1", func(bool, Endpoint) {})
+	sub2 := UpdaterFunc("updater2", func(bool, Endpoint) {})
+	sub3 := UpdaterFunc("updater3", func(bool, Endpoint) {})
 
 	hc.Subscribe("", sub1)
 	hc.Subscribe("", sub2)
@@ -124,46 +122,42 @@ func TestHealthCheck_Unsubscribe(t *testing.T) {
 	hc.Subscribe("endpoint3", sub2)
 	hc.Subscribe("endpoint3", sub3)
 
-	if len(hc.updaters) != 4 {
+	if len(hc.updaters) != 3 {
 		t.Error(hc.updaters)
-	} else if len(hc.updaters[""]) != 3 {
-		t.Error(hc.updaters[""])
-	} else if len(hc.updaters["endpoint1"]) != 3 {
-		t.Error(hc.updaters["endpoint1"])
-	} else if len(hc.updaters["endpoint2"]) != 2 {
-		t.Error(hc.updaters["endpoint2"])
-	} else if len(hc.updaters["endpoint3"]) != 3 {
-		t.Error(hc.updaters["endpoint3"])
+	} else if len(hc.subscribers["endpoint1"]) != 3 {
+		t.Error(hc.subscribers["endpoint1"])
+	} else if len(hc.subscribers["endpoint2"]) != 2 {
+		t.Error(hc.subscribers["endpoint2"])
+	} else if len(hc.subscribers["endpoint3"]) != 3 {
+		t.Error(hc.subscribers["endpoint3"])
 	}
 
 	hc.UnsubscribeByUpdater(sub1)
-	if len(hc.updaters) != 4 {
+	if len(hc.updaters) != 2 {
 		t.Error(hc.updaters)
-	} else if len(hc.updaters[""]) != 2 {
-		t.Error(hc.updaters[""])
-	} else if len(hc.updaters["endpoint1"]) != 2 {
-		t.Error(hc.updaters["endpoint1"])
-	} else if len(hc.updaters["endpoint2"]) != 1 {
-		t.Error(hc.updaters["endpoint2"])
-	} else if len(hc.updaters["endpoint3"]) != 2 {
-		t.Error(hc.updaters["endpoint3"])
+	} else if len(hc.subscribers["endpoint1"]) != 2 {
+		t.Error(hc.subscribers["endpoint1"])
+	} else if len(hc.subscribers["endpoint2"]) != 1 {
+		t.Error(hc.subscribers["endpoint2"])
+	} else if len(hc.subscribers["endpoint3"]) != 2 {
+		t.Error(hc.subscribers["endpoint3"])
 	}
 
 	hc.UnsubscribeByUpdater(sub3)
-	if len(hc.updaters) != 3 {
+	if len(hc.updaters) != 1 {
 		t.Error(hc.updaters)
-	} else if len(hc.updaters[""]) != 1 {
-		t.Error(hc.updaters[""])
-	} else if us := hc.updaters["endpoint1"]; len(us) != 1 || us[0] != sub2 {
+	} else if us := hc.subscribers["endpoint1"]; len(us) != 1 || us["updater2"] == nil {
 		t.Error(us)
-	} else if hc.updaters["endpoint2"] != nil {
-		t.Error(hc.updaters["endpoint2"])
-	} else if us := hc.updaters["endpoint3"]; len(us) != 1 || us[0] != sub2 {
+	} else if hc.subscribers["endpoint2"] != nil {
+		t.Error(hc.subscribers["endpoint2"])
+	} else if us := hc.subscribers["endpoint3"]; len(us) != 1 || us["updater2"] == nil {
 		t.Error(us)
 	}
 
 	hc.UnsubscribeByUpdater(sub2)
 	if len(hc.updaters) != 0 {
 		t.Error(hc.updaters)
+	} else if len(hc.subscribers) != 0 {
+		t.Error(hc.subscribers)
 	}
 }

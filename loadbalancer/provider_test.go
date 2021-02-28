@@ -21,9 +21,9 @@ import (
 func TestGeneralProvider_ProviderEndpointManager(t *testing.T) {
 	p := NewGeneralProvider(RandomSelector())
 
-	p.AddEndpoint(NewHTTPEndpoint("127.0.0.1:8001", nil))
-	p.AddEndpoint(NewHTTPEndpoint("127.0.0.1:8002", nil))
-	p.AddEndpoint(NewHTTPEndpoint("127.0.0.1:8003", nil))
+	p.AddEndpoint(NewNoopEndpoint("127.0.0.1:8001"))
+	p.AddEndpoint(NewNoopEndpoint("127.0.0.1:8002"))
+	p.AddEndpoint(NewNoopEndpoint("127.0.0.1:8003"))
 	for i, ep := range p.Endpoints() {
 		switch i {
 		case 0:
@@ -55,7 +55,7 @@ func TestGeneralProvider_ProviderEndpointManager(t *testing.T) {
 		}
 	}
 
-	p.AddEndpoint(NewHTTPEndpoint("127.0.0.1:8004", nil))
+	p.AddEndpoint(NewNoopEndpoint("127.0.0.1:8004"))
 	for i, ep := range p.Endpoints() {
 		switch i {
 		case 0:

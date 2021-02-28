@@ -31,8 +31,8 @@ func ExampleLoadBalancerGroup() {
 	defer hc.Stop()
 
 	lbg := NewLoadBalancerGroup()
-	lbg.SetHealthCheck(hc, time.Millisecond*10, time.Second)
-	lbg.OnEndpoint = UpdaterFunc(func(add bool, ep Endpoint) {
+	lbg.SetHealthCheck(hc, time.Millisecond*10, time.Second, 0)
+	lbg.OnEndpoint = UpdaterFunc("updater", func(add bool, ep Endpoint) {
 		if hc.HasEndpoint(ep) {
 			return
 		}

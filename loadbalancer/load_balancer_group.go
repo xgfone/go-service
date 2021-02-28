@@ -51,6 +51,7 @@ type LoadBalancerGroup struct {
 	hc         *HealthCheck
 	hcTimeout  time.Duration
 	hcInterval time.Duration
+	hcRetryNum int
 }
 
 // NewLoadBalancerGroup returns a new LoadBalancerGroup.
@@ -59,7 +60,7 @@ func NewLoadBalancerGroup() *LoadBalancerGroup {
 		lbs: make(map[groupT]*loadBalancerWrapper, 16),
 		eps: make(map[endpointT]*endpoint2lbsWrapper, 32),
 	}
-	lbg.updater = UpdaterFunc(lbg.updateEndpoint)
+	lbg.updater = UpdaterFunc("LoadBalancerGroup", lbg.updateEndpoint)
 	return &lbg
 }
 
@@ -96,12 +97,13 @@ func (lbg *LoadBalancerGroup) updateEndpoint(add bool, endpoint Endpoint) {
 }
 
 func (lbg *LoadBalancerGroup) noticeAddEndpoint(lbw *loadBalancerWrapper,
-	hc *HealthCheck, ep Endpoint, interval, timeout time.Duration) {
+	hc *HealthCheck, ep Endpoint, interval, timeout time.Duration, retryNum int) {
 	if lbg.OnEndpoint != nil {
 		lbg.OnEndpoint.AddEndpoint(ep)
 	}
+
 	if hc != nil {
-		hc.AddEndpoint(ep, interval, timeout)
+		hc.AddEndpointWithDuration(ep, interval, timeout, retryNum)
 		if hc.IsHealthy(ep.String()) && !lbw.LoadBalancer.IsActive(ep) {
 			lbw.LoadBalancer.EndpointManager().AddEndpoint(ep)
 		}
@@ -112,6 +114,7 @@ func (lbg *LoadBalancerGroup) noticeDelEndpoint(hc *HealthCheck, endpoint Endpoi
 	if lbg.OnEndpoint != nil {
 		lbg.OnEndpoint.DelEndpoint(endpoint)
 	}
+
 	if hc != nil {
 		hc.DelEndpoint(endpoint)
 	}
@@ -120,7 +123,7 @@ func (lbg *LoadBalancerGroup) noticeDelEndpoint(hc *HealthCheck, endpoint Endpoi
 // SetHealthCheck sets the HealthCheck to hc. If hc is nil, it will unset it.
 //
 // If not nil, it will use it to maintain the statuses of all the endpoints.
-func (lbg *LoadBalancerGroup) SetHealthCheck(hc *HealthCheck, interval, timeout time.Duration) {
+func (lbg *LoadBalancerGroup) SetHealthCheck(hc *HealthCheck, interval, timeout time.Duration, retryNum int) {
 	lbg.lock.Lock()
 	defer lbg.lock.Unlock()
 
@@ -128,7 +131,8 @@ func (lbg *LoadBalancerGroup) SetHealthCheck(hc *HealthCheck, interval, timeout 
 		lbg.hc.UnsubscribeByUpdater(lbg.updater)
 	}
 
-	hc.AddUpdater(lbg.updater)
+	hc.Subscribe("", lbg.updater)
+	lbg.hcRetryNum = retryNum
 	lbg.hcInterval = interval
 	lbg.hcTimeout = timeout
 	lbg.hc = hc
@@ -201,9 +205,10 @@ func (lbg *LoadBalancerGroup) AddEndpoint(group string, endpoint Endpoint) {
 	hc := lbg.hc
 	timeout := lbg.hcTimeout
 	interval := lbg.hcInterval
+	retryNum := lbg.hcRetryNum
 	lbg.lock.Unlock()
 
-	lbg.noticeAddEndpoint(lbw, hc, endpoint, interval, timeout)
+	lbg.noticeAddEndpoint(lbw, hc, endpoint, interval, timeout, retryNum)
 }
 
 func (lbg *LoadBalancerGroup) delEndpoint(endpoint string) bool {
