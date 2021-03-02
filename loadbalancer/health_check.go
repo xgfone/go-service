@@ -62,6 +62,7 @@ type endpointWrapper struct {
 	retryNum int
 	failures int
 
+	count  int32
 	health uint32
 }
 
@@ -77,7 +78,20 @@ func newEndpointWrapper(ep Endpoint, interval, timeout time.Duration, retryNum i
 		timeout:  timeout,
 		interval: interval,
 		retryNum: retryNum,
+		count:    1,
 	}
+}
+
+func (epw *endpointWrapper) IncCount() {
+	atomic.AddInt32(&epw.count, 1)
+}
+
+func (epw *endpointWrapper) DecCount() int32 {
+	return atomic.AddInt32(&epw.count, -1)
+}
+
+func (epw *endpointWrapper) ReferenceCount() int32 {
+	return atomic.LoadInt32(&epw.count)
 }
 
 func (epw *endpointWrapper) Unwrap() Endpoint { return epw.Endpoint }
@@ -330,29 +344,49 @@ func (hc *HealthCheck) IsHealthy(endpoint string) (yes bool) {
 	return
 }
 
-// HasEndpoint reports whether the endpoint has added.
-func (hc *HealthCheck) HasEndpoint(endpoint Endpoint) bool {
-	addr := endpoint.String()
+// ReferenceCount returns the reference count of the endpoint.
+//
+// If the endpoint does not exist, return 0.
+func (hc *HealthCheck) ReferenceCount(endpoint string) (rc int32) {
 	hc.lock.RLock()
-	_, ok := hc.endpoints[addr]
+	if ep, ok := hc.endpoints[endpoint]; ok {
+		rc = ep.ReferenceCount()
+	}
+	hc.lock.RUnlock()
+	return
+}
+
+// Endpoint returns the monitored endpoint.
+//
+// If the endpoint does not exist, return nil.
+func (hc *HealthCheck) Endpoint(endpoint string) Endpoint {
+	hc.lock.RLock()
+	ep := hc.endpoints[endpoint]
+	hc.lock.RUnlock()
+	return ep
+}
+
+// HasEndpoint reports whether the endpoint has added.
+func (hc *HealthCheck) HasEndpoint(endpoint string) bool {
+	hc.lock.RLock()
+	_, ok := hc.endpoints[endpoint]
 	hc.lock.RUnlock()
 	return ok
 }
 
-// AddEndpointWithDuration add the endpoint to check its health status.
-//
-// If the endpoint has been added, update it.
-func (hc *HealthCheck) AddEndpointWithDuration(ep Endpoint, interval, timeout time.Duration, retryNum int) {
-	addr := ep.String()
-	hc.lock.Lock()
-	if ew, ok := hc.endpoints[addr]; ok {
-		ew.Reset(interval, timeout, retryNum)
-	} else {
-		ew := newEndpointWrapper(ep, interval, timeout, retryNum)
-		hc.endpoints[addr] = ew
-		go ew.Check(hc)
+// GetEndpointsByUpdater returns the list of the endpoints by the updater.
+func (hc *HealthCheck) GetEndpointsByUpdater(u Updater) (eps Endpoints) {
+	name := u.Name()
+	hc.lock.RLock()
+	for endpoint, updaters := range hc.subscribers {
+		if _, ok := updaters[name]; ok {
+			if ep, ok := hc.endpoints[endpoint]; ok {
+				eps = append(eps, ep)
+			}
+		}
 	}
-	hc.lock.Unlock()
+	hc.lock.RUnlock()
+	return
 }
 
 // Endpoints returns the copy of all the endpoints.
@@ -366,27 +400,70 @@ func (hc *HealthCheck) Endpoints() Endpoints {
 	return eps
 }
 
+// AddEndpointWithDuration add the endpoint to check its health status.
+//
+// If the endpoint has been added, update it.
+func (hc *HealthCheck) AddEndpointWithDuration(ep Endpoint, interval, timeout time.Duration, retryNum int) {
+	addr := ep.String()
+	hc.lock.Lock()
+	if ew, ok := hc.endpoints[addr]; ok {
+		ew.IncCount()
+		ew.Reset(interval, timeout, retryNum)
+	} else {
+		ew := newEndpointWrapper(ep, interval, timeout, retryNum)
+		hc.endpoints[addr] = ew
+		go ew.Check(hc)
+	}
+	hc.lock.Unlock()
+}
+
 // AddEndpoint is equal to hc.AddEndpointWithDuration(ep, hc.Interval, hc.Timeout).
 func (hc *HealthCheck) AddEndpoint(ep Endpoint) {
 	hc.AddEndpointWithDuration(ep, hc.Interval, hc.Timeout, hc.RetryNum)
 }
 
-// DelEndpoint deletes the endpoint in order not to monitor it.
+// DelEndpoint is equal to DelEndpointByString(endpoint.String()).
 func (hc *HealthCheck) DelEndpoint(endpoint Endpoint) {
 	hc.DelEndpointByString(endpoint.String())
 }
 
 // DelEndpointByString deletes the endpoint in order not to monitor it.
+//
+// Notice: In order to really delete the endpoint, call the same times
+// of DelEndpoint as AddEndpoint.
 func (hc *HealthCheck) DelEndpointByString(endpoint string) {
+	hc.delEndpoint(endpoint, false)
+}
+
+// DelEndpointByForce ignores the reference count of the endpoint
+// deletes it forcibly.
+func (hc *HealthCheck) DelEndpointByForce(endpoint string) {
+	hc.delEndpoint(endpoint, true)
+}
+
+// DelEndpointsByUpdater deletes the endpoints by the updater.
+func (hc *HealthCheck) DelEndpointsByUpdater(u Updater) {
+	name := u.Name()
 	hc.lock.Lock()
-	ep, ok := hc.endpoints[endpoint]
-	if ok {
-		delete(hc.endpoints, endpoint)
+	for endpoint, updaters := range hc.subscribers {
+		if _, ok := updaters[name]; ok {
+			hc.delEndpoint(endpoint, false)
+		}
 	}
 	hc.lock.Unlock()
+}
 
-	if ok {
+func (hc *HealthCheck) delEndpointSafe(endpoint string, force bool) {
+	hc.lock.Lock()
+	hc.delEndpoint(endpoint, force)
+	hc.lock.Unlock()
+}
+
+func (hc *HealthCheck) delEndpoint(endpoint string, force bool) {
+	ep, ok := hc.endpoints[endpoint]
+	if ok = ok && (force || ep.DecCount() <= 0); ok {
 		ep.Stop()
+		delete(hc.endpoints, endpoint)
 		hc.updatech <- endpointOp{Add: false, Endpoint: ep.Endpoint}
 	}
 }

@@ -35,6 +35,7 @@ type failEndpoint struct {
 func newFailEndpoint(addr string, buf *bytes.Buffer) Endpoint {
 	return failEndpoint{addr, buf}
 }
+func (e failEndpoint) Type() string                     { return "fail" }
 func (e failEndpoint) String() string                   { return e.Addr }
 func (e failEndpoint) UserData() interface{}            { return nil }
 func (e failEndpoint) MetaData() map[string]interface{} { return nil }

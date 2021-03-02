@@ -30,6 +30,7 @@ type hcEndpoint struct {
 }
 
 func newHCEndpoint(addr string) Endpoint               { return &hcEndpoint{addr: addr} }
+func (e *hcEndpoint) Type() string                     { return "healthcheck" }
 func (e *hcEndpoint) String() string                   { return e.addr }
 func (e *hcEndpoint) UserData() interface{}            { return nil }
 func (e *hcEndpoint) MetaData() map[string]interface{} { return nil }
@@ -159,5 +160,48 @@ func TestHealthCheck_Unsubscribe(t *testing.T) {
 		t.Error(hc.updaters)
 	} else if len(hc.subscribers) != 0 {
 		t.Error(hc.subscribers)
+	}
+}
+
+func TestHealthCheck_ReferenceCount(t *testing.T) {
+	hc := NewHealthCheck()
+	defer hc.Stop()
+
+	hc.AddEndpoint(NewNoopEndpoint("ep1"))
+	hc.AddEndpoint(NewNoopEndpoint("ep2"))
+	hc.AddEndpoint(NewNoopEndpoint("ep2"))
+	hc.AddEndpoint(NewNoopEndpoint("ep3"))
+	hc.AddEndpoint(NewNoopEndpoint("ep3"))
+	hc.AddEndpoint(NewNoopEndpoint("ep3"))
+
+	time.Sleep(time.Millisecond * 10)
+	if rc := hc.ReferenceCount("ep1"); rc != 1 {
+		t.Errorf("Endpoint(%s) ReferenceCount: expect '%d', but got '%d'", "ep1", 1, rc)
+	}
+	if rc := hc.ReferenceCount("ep2"); rc != 2 {
+		t.Errorf("Endpoint(%s) ReferenceCount: expect '%d', but got '%d'", "ep2", 2, rc)
+	}
+	if rc := hc.ReferenceCount("ep3"); rc != 3 {
+		t.Errorf("Endpoint(%s) ReferenceCount: expect '%d', but got '%d'", "ep3", 3, rc)
+	}
+
+	time.Sleep(time.Millisecond * 10)
+	hc.DelEndpointByString("ep1")
+	hc.DelEndpointByString("ep2")
+	hc.DelEndpointByString("ep3")
+	if rc := hc.ReferenceCount("ep1"); rc != 0 {
+		t.Errorf("Endpoint(%s) ReferenceCount: expect '%d', but got '%d'", "ep1", 0, rc)
+	}
+	if rc := hc.ReferenceCount("ep2"); rc != 1 {
+		t.Errorf("Endpoint(%s) ReferenceCount: expect '%d', but got '%d'", "ep2", 1, rc)
+	}
+	if rc := hc.ReferenceCount("ep3"); rc != 2 {
+		t.Errorf("Endpoint(%s) ReferenceCount: expect '%d', but got '%d'", "ep3", 2, rc)
+	}
+
+	time.Sleep(time.Millisecond * 10)
+	hc.DelEndpointByForce("ep3")
+	if rc := hc.ReferenceCount("ep3"); rc != 0 {
+		t.Errorf("Endpoint(%s) ReferenceCount: expect '%d', but got '%d'", "ep3", 0, rc)
 	}
 }

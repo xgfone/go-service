@@ -68,6 +68,9 @@ type Endpoint interface {
 	// identity and may be the address or the url.
 	String() string
 
+	// Type returns the type of the endpoint, such as "http", "tcp", etc.
+	Type() string
+
 	// UserData is the external data passed to the endpoint.
 	UserData() interface{}
 
@@ -88,6 +91,7 @@ type noopEndpoint string
 
 // NewNoopEndpoint returns a new Noop endpoint, which does nothing.
 func NewNoopEndpoint(addr string) Endpoint                                  { return noopEndpoint(addr) }
+func (e noopEndpoint) Type() string                                         { return "noop" }
 func (e noopEndpoint) String() string                                       { return string(e) }
 func (e noopEndpoint) IsHealthy(context.Context) bool                       { return true }
 func (e noopEndpoint) RoundTrip(context.Context, Request) (Response, error) { return nil, nil }

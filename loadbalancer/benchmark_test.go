@@ -79,6 +79,7 @@ func newFailOnceEndpoint(addr string) Endpoint {
 	return &failOnceEndpoint{Addr: addr}
 }
 
+func (e *failOnceEndpoint) Type() string                     { return "failonce" }
 func (e *failOnceEndpoint) String() string                   { return e.Addr }
 func (e *failOnceEndpoint) UserData() interface{}            { return nil }
 func (e *failOnceEndpoint) MetaData() map[string]interface{} { return nil }

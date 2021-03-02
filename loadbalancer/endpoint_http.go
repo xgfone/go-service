@@ -97,6 +97,10 @@ func (e httpEndpoint) String() string {
 	return e.url
 }
 
+func (e httpEndpoint) Type() string {
+	return "http"
+}
+
 func (e httpEndpoint) UserData() interface{} {
 	return e.conf.UserData
 }

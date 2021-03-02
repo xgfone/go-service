@@ -35,22 +35,20 @@ type SessionManager interface {
 }
 
 // NewMemorySessionManager returns a new SessionManager based on the memory.
-func NewMemorySessionManager() SessionManager {
-	return memorySessionManager{new(sync.Map)}
-}
+func NewMemorySessionManager() SessionManager { return &memorySessionManager{} }
 
 type memorySessionManager struct {
-	endpoints *sync.Map
+	endpoints sync.Map
 }
 
-func (m memorySessionManager) GetEndpoint(addr string) Endpoint {
+func (m *memorySessionManager) GetEndpoint(addr string) Endpoint {
 	if endpoint, ok := m.endpoints.Load(addr); ok {
 		return endpoint.(Endpoint)
 	}
 	return nil
 }
 
-func (m memorySessionManager) SetEndpoint(addr string, endpoint Endpoint) {
+func (m *memorySessionManager) SetEndpoint(addr string, endpoint Endpoint) {
 	if addr == "" {
 		panic("MemorySessionManager: the address must not be empty")
 	} else if endpoint == nil {
@@ -59,6 +57,6 @@ func (m memorySessionManager) SetEndpoint(addr string, endpoint Endpoint) {
 	m.endpoints.Store(addr, endpoint)
 }
 
-func (m memorySessionManager) DelEndpoint(addr string) {
+func (m *memorySessionManager) DelEndpoint(addr string) {
 	m.endpoints.Delete(addr)
 }
