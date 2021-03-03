@@ -26,13 +26,21 @@ import (
 // HTTPRequest is a HTTP request.
 type HTTPRequest struct {
 	req *http.Request
+	sid string
 }
 
 // NewHTTPRequest returns a new HTTPRequest.
-func NewHTTPRequest(r *http.Request) HTTPRequest { return HTTPRequest{r} }
+//
+// Notice: sessionID may be empty.
+func NewHTTPRequest(r *http.Request, sessionID string) HTTPRequest {
+	return HTTPRequest{req: r, sid: sessionID}
+}
 
 // RemoteAddrString implements the interface Request.
 func (r HTTPRequest) RemoteAddrString() string { return r.req.RemoteAddr }
+
+// SessionID implements the interface RequestSession.
+func (r HTTPRequest) SessionID() string { return r.sid }
 
 // Request returns the inner http.Request.
 func (r HTTPRequest) Request() *http.Request { return r.req }
@@ -42,9 +50,21 @@ type HTTPEndpointConfig struct {
 	Client   *http.Client
 	Checker  HealthChecker
 	UserData interface{}
+
+	// Request is used to fix the request before sending the http request.
+	Request func(orig *http.Request) (new *http.Request)
+
+	// Response is used to fix the response after getting the http response.
+	Response func(orig *http.Response, err error) (*http.Response, error)
 }
 
-// NewHTTPEndpoint returns a new HTTP endpoint.
+// NewHTTPEndpoint returns a new HTTP endpoint, which only replaces the host
+// of the original request with the host of "eurl" and adds the two headers
+// "X-Forwarded-For" and "Origin".
+//
+// "eurl" is used to check whether the endpoint is healthy. By default,
+// it only tests whether the tcp connection is dialed with the host part.
+// But you can customize it.
 func NewHTTPEndpoint(eurl string, conf *HTTPEndpointConfig) (Endpoint, error) {
 	u, err := url.Parse(eurl)
 	if err != nil {
@@ -124,5 +144,15 @@ func (e httpEndpoint) RoundTrip(c context.Context, r Request) (Response, error) 
 	req.RequestURI = ""
 	req.Header.Set("X-Forwarded-For", req.RemoteAddr)
 	req.Header.Set("Origin", fmt.Sprintf("%s://%s", req.URL.Scheme, req.Host))
-	return e.conf.Client.Do(req)
+
+	if e.conf.Request != nil {
+		req = e.conf.Request(req)
+	}
+
+	resp, err := e.conf.Client.Do(req)
+	if e.conf.Response != nil {
+		resp, err = e.conf.Response(resp, err)
+	}
+
+	return resp, err
 }
