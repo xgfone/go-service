@@ -149,6 +149,17 @@ func UnwrapEndpoint(endpoint Endpoint) Endpoint {
 	return endpoint
 }
 
+// UnwrapOnceEndpoint unwraps the inner endpoint if it has implemented
+// the interface EndpointUnwrap. Or, return itself.
+func UnwrapOnceEndpoint(endpoint Endpoint) Endpoint {
+	if eu, ok := endpoint.(EndpointUnwrap); ok {
+		if ep := eu.Unwrap(); ep != nil {
+			return ep
+		}
+	}
+	return endpoint
+}
+
 /// ------------------------------------------------------------------------
 
 // WeightEndpoint represents an endpoint with the weight.
