@@ -15,9 +15,7 @@
 // Package httputil supplies the middleware and the wrapper of http.RoundTripper.
 package httputil
 
-import (
-	"net/http"
-)
+import "net/http"
 
 // RoundTripperMiddleware is a chainable behavior modifier for http.RoundTripper.
 type RoundTripperMiddleware func(next http.RoundTripper) http.RoundTripper
@@ -40,23 +38,25 @@ func RoundTripperFunc(f func(*http.Request) (*http.Response, error)) http.RoundT
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
-func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return f(req)
+// RoundTripperWrapper is a wrapper of http.RoundTripper.
+type RoundTripperWrapper interface {
+	WrappedRoundTripper() http.RoundTripper
+	http.RoundTripper
 }
 
 // NewRoundTripperWrapper returns the a new http.RoundTripper that will wrap rt
 // by the function f.
-func NewRoundTripperWrapper(rt http.RoundTripper, f func(http.RoundTripper, *http.Request) (*http.Response, error)) http.RoundTripper {
-	return roundTripperWrapper{rt: rt, f: f}
+func NewRoundTripperWrapper(rt http.RoundTripper, f RoundTripperWrapperFunc) RoundTripperWrapper {
+	return roundTripperWrapper{rt: rt, wf: f}
 }
 
 type roundTripperWrapper struct {
 	rt http.RoundTripper
-	f  func(http.RoundTripper, *http.Request) (*http.Response, error)
+	wf RoundTripperWrapperFunc
 }
 
 func (r roundTripperWrapper) RoundTrip(req *http.Request) (*http.Response, error) {
-	return r.f(r.rt, req)
+	return r.wf(r.rt, req)
 }
 
 func (r roundTripperWrapper) WrappedRoundTripper() http.RoundTripper {
