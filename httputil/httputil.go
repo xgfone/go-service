@@ -31,12 +31,13 @@ func RoundTripperMiddlewareChain(outer RoundTripperMiddleware, others ...RoundTr
 	}
 }
 
-// RoundTripperFunc converts a function to http.RoundTripper.
-func RoundTripperFunc(f func(*http.Request) (*http.Response, error)) http.RoundTripper {
-	return roundTripperFunc(f)
-}
+// RoundTripperFunc is the function type of http.RoundTripper.
+type RoundTripperFunc func(*http.Request) (*http.Response, error)
 
-type roundTripperFunc func(*http.Request) (*http.Response, error)
+// RoundTrip implements the interface http.RoundTripper.
+func (f RoundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 // RoundTripperWrapper is a wrapper of http.RoundTripper.
 type RoundTripperWrapper interface {
