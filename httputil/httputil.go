@@ -39,6 +39,9 @@ func (f RoundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
+// RoundTripperWrapperFunc is the function to wrap http.RoundTripper.
+type RoundTripperWrapperFunc func(http.RoundTripper, *http.Request) (*http.Response, error)
+
 // RoundTripperWrapper is a wrapper of http.RoundTripper.
 type RoundTripperWrapper interface {
 	WrappedRoundTripper() http.RoundTripper
