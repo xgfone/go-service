@@ -125,7 +125,7 @@ func init() {
 
 	http.DefaultClient.Transport = httputil.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		if r.Host == "127.0.0.1:80" {
-			resp, err := lb.RoundTrip(context.Background(), loadbalancer.NewHTTPRequest(r))
+			resp, err := lb.RoundTrip(context.Background(), loadbalancer.NewHTTPRequest(r, ""))
 			if err != nil {
 				return nil, err
 			}
@@ -181,7 +181,7 @@ import (
 func proxyHandler(lb *loadbalancer.LoadBalancer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// TODO: Add other headers
-		resp, err := lb.RoundTrip(context.Background(), loadbalancer.NewHTTPRequest(r))
+		resp, err := lb.RoundTrip(context.Background(), loadbalancer.NewHTTPRequest(r, ""))
 		if err != nil {
 			w.WriteHeader(502)
 			w.Write([]byte(err.Error()))
