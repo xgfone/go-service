@@ -7,14 +7,7 @@ A service library, such as Task Runner, LoadBalancer, HealthCheck or Retry, supp
     - 2.1 [Task Runner](#21-task-runner)
     - 2.2 [Load Balancer](#22-load-balancer)
         - 2.2.1 [`Client` Mode](#221-client-mode)
-            - 2.2.1.1 [For HTTP Client](#2211-for-http-client)
-                - 2.2.1.1.1 [Example 1](#22111-example-1)
-                - 2.2.1.1.2 [Example 2](#22112-example-2)
-                - 2.2.1.1.3 [Example 3](#22113-example-3)
-            - 2.2.1.2 [For TCP Client](#2212-for-tcp-client)
         - 2.2.2 [`Proxy` Mode](#222-proxy-mode)
-            - 2.2.2.1 [For HTTP Proxy](#2221-for-http-Proxy)
-            - 2.2.2.2 [For TCP Proxy](#2222-for-tcp-Proxy)
 
 
 ## 1. Installation
