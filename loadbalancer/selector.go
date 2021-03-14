@@ -30,11 +30,7 @@ type Selector interface {
 	// String returns the name of the selector.
 	String() string
 
-	// Select returns the index of the selected endpoint from endpoints
-	// by the request.
-	//
-	// Notice: it is thread-safe, so the implementation does not need
-	// to use the lock. And the number of endpoints is a positive integer.
+	// Select returns the selected endpoint from endpoints by the request.
 	Select(request Request, endpoints Endpoints) Endpoint
 }
 
