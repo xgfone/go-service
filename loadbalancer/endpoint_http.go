@@ -204,7 +204,7 @@ func (i HTTPEndpointInfo) Validate() error {
 // HTTPEndpointConfig is used to configure the HTTP endpoint.
 type HTTPEndpointConfig struct {
 	// ID is the id of the endpoint, which will be set as the response header
-	// "X-Server-ID".
+	// "X-Server-Id".
 	//
 	// Default: hex.EncodeToString([]byte(addr)).
 	ID string
@@ -394,7 +394,7 @@ func (e *httpEndpoint) RoundTrip(c context.Context, r Request) (interface{}, err
 	}
 
 	if resp != nil {
-		resp.Header.Set("X-Server-ID", e.svrid)
+		resp.Header.Set("X-Server-Id", e.svrid)
 	}
 	return resp, err
 }
