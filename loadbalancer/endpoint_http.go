@@ -58,65 +58,114 @@ func (r HTTPRequest) Request() *http.Request { return r.req }
 // HTTPEndpointHealthCheckerFunc is used to check the health of the endpoint.
 type HTTPEndpointHealthCheckerFunc func(c context.Context, addr string, info HTTPEndpointInfo) bool
 
-// HTTPEndpointHealthChecker returns a health checker, which builds
-// and sends a url to check the status code is less than 400.
-//
-// Default:
-//   Scheme: "http"
-//   Method: "GET"
-//   Path:   "/"
-//
-func HTTPEndpointHealthChecker(client *http.Client, info HTTPEndpointInfo) (HTTPEndpointHealthCheckerFunc, error) {
-	if err := info.Validate(); err != nil {
+// HTTPEndpointHealthChecker is equal to
+//   HTTPEndpointHealthCheckerWithConfig(&HTTPEndpointHealthCheckerConfig{
+//       Client: client,
+//       Info: info,
+//   })
+func HTTPEndpointHealthChecker(client *http.Client, info HTTPEndpointInfo) (
+	HTTPEndpointHealthCheckerFunc, error) {
+	return HTTPEndpointHealthCheckerWithConfig(&HTTPEndpointHealthCheckerConfig{
+		Client: client, Info: info,
+	})
+}
+
+// HTTPStatusCodeRange is the range of the http status code,
+// which is semi-closure, that's, [Begin, End).
+type HTTPStatusCodeRange struct {
+	Begin int `json:"begin" xml:"begin"`
+	End   int `json:"end" xml:"end"`
+}
+
+// HTTPEndpointHealthCheckerConfig is used to configure the health checker
+// of the http endpoint.
+type HTTPEndpointHealthCheckerConfig struct {
+	// Default: http.DefaultClient
+	Client *http.Client
+
+	// Default: [{Begin: 0, End: 400}]
+	Codes []HTTPStatusCodeRange
+
+	// Info is the information to check the health of the http endpoint.
+	//
+	// Default:
+	//   Scheme: "http"
+	//   Method: "GET"
+	//   Path:   "/"
+	Info HTTPEndpointInfo
+}
+
+// HTTPEndpointHealthCheckerWithConfig returns a health checker,
+// which builds and sends a url to check the status code is in the given range.
+func HTTPEndpointHealthCheckerWithConfig(c *HTTPEndpointHealthCheckerConfig) (
+	HTTPEndpointHealthCheckerFunc, error) {
+	var conf HTTPEndpointHealthCheckerConfig
+	if c != nil {
+		conf = *c
+	}
+
+	if err := conf.Info.Validate(); err != nil {
 		return nil, err
 	}
 
-	if info.Method == "" {
-		info.Method = http.MethodGet
+	if conf.Info.Method == "" {
+		conf.Info.Method = http.MethodGet
 	}
 
-	if info.Scheme == "" {
-		info.Scheme = "http"
+	if conf.Info.Scheme == "" {
+		conf.Info.Scheme = "http"
 	}
 
-	if info.Path == "" {
-		info.Path = "/"
+	if conf.Info.Path == "" {
+		conf.Info.Path = "/"
+	}
+
+	if len(conf.Codes) == 0 {
+		conf.Codes = []HTTPStatusCodeRange{{End: 400}}
 	}
 
 	return func(c context.Context, addr string, _ HTTPEndpointInfo) bool {
-		url := fmt.Sprintf("%s://%s%s", info.Scheme, addr, info.Path)
-		req, err := http.NewRequestWithContext(c, info.Method, url, nil)
+		url := fmt.Sprintf("%s://%s%s", conf.Info.Scheme, addr, conf.Info.Path)
+		req, err := http.NewRequestWithContext(c, conf.Info.Method, url, nil)
 		if err != nil {
 			return false
 		}
 
-		if info.Hostname != "" {
-			req.Host = info.Hostname
+		if conf.Info.Hostname != "" {
+			req.Host = conf.Info.Hostname
 		}
-		if len(info.Query) != 0 {
-			req.URL.RawQuery = info.Query.Encode()
+		if len(conf.Info.Query) != 0 {
+			req.URL.RawQuery = conf.Info.Query.Encode()
 		}
-		if len(info.Header) != 0 {
+		if len(conf.Info.Header) != 0 {
 			if len(req.Header) == 0 {
-				req.Header = info.Header
+				req.Header = conf.Info.Header
 			} else {
-				for k, vs := range info.Header {
+				for k, vs := range conf.Info.Header {
 					req.Header[k] = vs
 				}
 			}
 		}
 
 		var resp *http.Response
-		if client == nil {
+		if conf.Client == nil {
 			resp, err = http.DefaultClient.Do(req)
 		} else {
-			resp, err = client.Do(req)
+			resp, err = conf.Client.Do(req)
 		}
 
-		if resp != nil && resp.Body != nil {
-			resp.Body.Close()
+		if err != nil {
+			return false
 		}
-		return err == nil && resp.StatusCode < 400
+		resp.Body.Close()
+
+		for _, code := range conf.Codes {
+			if code.Begin <= resp.StatusCode && resp.StatusCode < code.End {
+				return true
+			}
+		}
+
+		return false
 	}, nil
 }
 
