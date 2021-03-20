@@ -1,4 +1,4 @@
-// Copyright 2020 xgfone
+// Copyright 2021 xgfone
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,27 +16,10 @@ package loadbalancer
 
 import (
 	"context"
-	"net"
-	"net/url"
-	"strings"
-	"time"
-
-	"github.com/xgfone/go-service/retry"
+	"fmt"
+	"io"
+	"sort"
 )
-
-// RequestSession represents a request session of the business logic.
-type RequestSession interface {
-	// SessionID returns the session id of the request context, which is used,
-	// when enabling the session stick, to bind the requests with the same
-	// session id but without the same connection to a backend endpoint
-	// to be handled.
-	//
-	// It maybe return the remote address as the session id. In this case,
-	// you does not need to implement it, it will RemoteAddrString() instead.
-	//
-	// Notice: it maybe return an empty string.
-	SessionID() string
-}
 
 // Request represents a request.
 type Request interface {
@@ -44,65 +27,67 @@ type Request interface {
 	// that's, the sender of the current request.
 	//
 	// Notice: it maybe return "" to represent that it is the originator
-	// and not to forward the request.
+	// and not the remote peer.
 	RemoteAddrString() string
+
+	// SessionID returns the session id of the request context, which is used
+	// to bind the requests with the same session id to the same endpoint
+	// to be handled, when enabling the session stick.
+	//
+	// Notice: it maybe return an empty string, but use RemoteAddrString instead.
+	SessionID() string
 }
 
-type noopRequest struct{ addr string }
-
-// NewNoopRequest returns a Noop request with the remote address,
-// which may be empty.
-func NewNoopRequest(addr string) Request       { return noopRequest{addr: addr} }
-func (r noopRequest) RemoteAddrString() string { return r.addr }
-
-/// -------------------------------------------------------------------------
-
-// Response represents a response.
-type Response interface{}
-
-/// ------------------------------------------------------------------------
+// EndpointState represents the running state of the endpoint.
+type EndpointState struct {
+	TotalConnections   int64 // The total number of all the connections.
+	CurrentConnections int64 // The number of all the current connections.
+}
 
 // Endpoint represents a service endpoint.
 type Endpoint interface {
-	// String returns the description of the endpoint, which is the unique
-	// identity and may be the address or the url.
-	String() string
+	// Returns the description of the endpoint, which is the unique identity
+	// and may be the address or the url.
+	//
+	// Notice: For the virtual host, it should contain the host domain name,
+	// such as "domain@ip:port".
+	fmt.Stringer
 
 	// Type returns the type of the endpoint, such as "http", "tcp", etc.
 	Type() string
 
-	// UserData is the external data passed to the endpoint.
-	UserData() interface{}
+	// State returns the state of the current endpoint.
+	State() EndpointState
 
-	// MetaData is the internal data of the endpoint.
+	// MetaData is the internal data of the endpoint, which had better contain
+	// a key "addr" to indicate the address of the endpoint.
 	MetaData() map[string]interface{}
 
-	// IsHealthy reports whether the current endpoint is healthy.
-	//
-	// It is used to detect whether the endpoint is still active.
-	// If you use other alive probe, the method maybe always return true.
+	// IsHealthy is used to detect whether the endpoint is healthy,
+	// that's, the endpoint is connected or accessed.
 	IsHealthy(context.Context) bool
 
 	// RoundTrip sends the request to the current endpoint.
-	RoundTrip(context.Context, Request) (Response, error)
+	RoundTrip(c context.Context, req Request) (response interface{}, err error)
 }
 
-type noopEndpoint string
+// EndpointManager is used to add and delete the endpoint.
+type EndpointManager interface {
+	AddEndpoint(Endpoint)
+	DelEndpoint(Endpoint)
+}
 
-// NewNoopEndpoint returns a new Noop endpoint, which does nothing.
-func NewNoopEndpoint(addr string) Endpoint                                  { return noopEndpoint(addr) }
-func (e noopEndpoint) Type() string                                         { return "noop" }
-func (e noopEndpoint) String() string                                       { return string(e) }
-func (e noopEndpoint) IsHealthy(context.Context) bool                       { return true }
-func (e noopEndpoint) RoundTrip(context.Context, Request) (Response, error) { return nil, nil }
-func (e noopEndpoint) UserData() interface{}                                { return nil }
-func (e noopEndpoint) MetaData() map[string]interface{}                     { return nil }
-
-/// ------------------------------------------------------------------------
+// EndpointUpdater is used to update the endpoint.
+type EndpointUpdater interface {
+	EndpointManager
+	Name() string
+	io.Closer
+}
 
 // Endpoints is a set of Endpoint.
 type Endpoints []Endpoint
 
+func (es Endpoints) Sort()         { sort.Stable(es) }
 func (es Endpoints) Len() int      { return len(es) }
 func (es Endpoints) Swap(i, j int) { es[i], es[j] = es[j], es[i] }
 func (es Endpoints) Less(i, j int) bool {
@@ -116,51 +101,29 @@ func (es Endpoints) Less(i, j int) bool {
 
 // Contains reports whether the endpoints contains the endpoint.
 func (es Endpoints) Contains(endpoint Endpoint) bool {
-	eps := endpoint.String()
-	for _, ep := range es {
-		if ep.String() == eps {
-			return true
-		}
-	}
-	return false
+	return binarySearch(es, endpoint.String()) != -1
 }
 
-/// ------------------------------------------------------------------------
-
-// EndpointUnwrap is used to unwrap the inner endpoint.
-type EndpointUnwrap interface {
-	// Unwrap unwraps the inner endpoint, but returns nil instead if no inner
-	// endpoint.
-	Unwrap() Endpoint
+// NotContains reports whether the endpoints does not contain the endpoint.
+func (es Endpoints) NotContains(endpoint Endpoint) bool {
+	return binarySearch(es, endpoint.String()) == -1
 }
 
-// UnwrapEndpoint unwraps the endpoint until it has not implemented
-// the interface EndpointUnwrap.
-func UnwrapEndpoint(endpoint Endpoint) Endpoint {
-	for {
-		if eu, ok := endpoint.(EndpointUnwrap); ok {
-			if ep := eu.Unwrap(); ep != nil {
-				endpoint = ep
-			}
+func binarySearch(eps Endpoints, addr string) int {
+	for low, high := 0, len(eps)-1; low <= high; {
+		mid := (low + high)
+		eaddr := eps[mid].String()
+		if eaddr == addr {
+			return mid
+		} else if addr < eaddr {
+			high = mid - 1
 		} else {
-			break
+			low = mid + 1
 		}
 	}
-	return endpoint
-}
 
-// UnwrapOnceEndpoint unwraps the inner endpoint if it has implemented
-// the interface EndpointUnwrap. Or, return itself.
-func UnwrapOnceEndpoint(endpoint Endpoint) Endpoint {
-	if eu, ok := endpoint.(EndpointUnwrap); ok {
-		if ep := eu.Unwrap(); ep != nil {
-			return ep
-		}
-	}
-	return endpoint
+	return -1
 }
-
-/// ------------------------------------------------------------------------
 
 // WeightEndpoint represents an endpoint with the weight.
 type WeightEndpoint interface {
@@ -189,67 +152,36 @@ type weightEndpoint struct {
 	weight func(Endpoint) int
 }
 
-func (we weightEndpoint) Weight() int { return we.weight(we.Endpoint) }
-
-/// -------------------------------------------------------------------------
-
-// Middleware is a chainable behavior modifier for endpoints.
-type Middleware func(next Endpoint) Endpoint
-
-// Chain is a helper function for composing middlewares, which will be called
-// in turn from first to last.
-func Chain(outer Middleware, others ...Middleware) Middleware {
-	return func(next Endpoint) Endpoint {
-		for i := len(others) - 1; i >= 0; i-- { // reverse
-			next = others[i](next)
-		}
-		return outer(next)
-	}
+func (we weightEndpoint) Weight() int              { return we.weight(we.Endpoint) }
+func (we weightEndpoint) UnwrapEndpoint() Endpoint { return we.Endpoint }
+func (we weightEndpoint) MetaData() map[string]interface{} {
+	md := we.Endpoint.MetaData()
+	md["weight"] = we.weight(we.Endpoint)
+	return md
 }
 
-/// -------------------------------------------------------------------------
+// EndpointUnwrap is used to unwrap the inner endpoint.
+type EndpointUnwrap interface {
+	// Unwrap unwraps the inner endpoint, or nil instead if no inner endpoint.
+	UnwrapEndpoint() Endpoint
+}
 
-// HealthChecker is used to check whether the address can be connected to or not.
-type HealthChecker func(c context.Context, addrOrURL string) error
-
-// CheckEndpointHealth check whether the endpoint is the healthy.
-//
-// If the endpoint is a HTTP URL, it will extract the Host field and test it
-// by the TCP connection.
-//
-// If failing to check the endpoint and retryNum is greater than 0, it will
-// retry it, and if retryInterval is equal to 0, it will retry it immediately,
-// not wait for the interval duration.
-func CheckEndpointHealth(timeout, retryInterval time.Duration, retryNum int) HealthChecker {
-	retry := retry.NewIntervalRetry(retryNum, retryInterval)
-	return func(ctx context.Context, addr string) error {
-		if strings.HasPrefix(addr, "http") {
-			if u, err := url.Parse(addr); err != nil {
-				return err
-			} else if _, _, err := net.SplitHostPort(u.Host); err == nil {
-				addr = u.Host
-			} else if strings.HasPrefix(addr, "https") {
-				addr = net.JoinHostPort(u.Host, "80")
+// UnwrapEndpoint unwraps the endpoint until it has not implemented
+// the interface EndpointUnwrap.
+func UnwrapEndpoint(endpoint Endpoint) Endpoint {
+	for {
+		if eu, ok := endpoint.(EndpointUnwrap); ok {
+			if ep := eu.UnwrapEndpoint(); ep != nil {
+				endpoint = ep
 			} else {
-				addr = net.JoinHostPort(u.Host, "443")
+				break
 			}
+		} else {
+			break
 		}
-
-		_, err := retry.Call(ctx, dialTCP, addr, timeout)
-		if err != nil {
-			return err.(error)
-		}
-		return nil
 	}
+	return endpoint
 }
 
-func dialTCP(ctx context.Context, args ...interface{}) (interface{}, error) {
-	addr := args[0].(string)
-	timeout := args[1].(time.Duration)
-	conn, err := net.DialTimeout("tcp", addr, timeout)
-	if err == nil {
-		conn.Close()
-		return nil, nil
-	}
-	return nil, err
-}
+// EndpointHealthChecker is used to check whether the endpoint addr is healthy.
+type EndpointHealthChecker func(ctx context.Context, addr string) error

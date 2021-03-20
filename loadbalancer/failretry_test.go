@@ -1,4 +1,4 @@
-// Copyright 2020 xgfone
+// Copyright 2021 xgfone
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,125 +15,75 @@
 package loadbalancer
 
 import (
-	"bytes"
 	"context"
-	"fmt"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/xgfone/go-service/retry"
 )
 
-var errFailed = fmt.Errorf("error")
-
-type failEndpoint struct {
-	Addr string
-	Buf  *bytes.Buffer
-}
-
-func newFailEndpoint(addr string, buf *bytes.Buffer) Endpoint {
-	return failEndpoint{addr, buf}
-}
-func (e failEndpoint) Type() string                     { return "fail" }
-func (e failEndpoint) String() string                   { return e.Addr }
-func (e failEndpoint) UserData() interface{}            { return nil }
-func (e failEndpoint) MetaData() map[string]interface{} { return nil }
-func (e failEndpoint) IsHealthy(context.Context) bool   { return true }
-func (e failEndpoint) RoundTrip(context.Context, Request) (Response, error) {
-	if e.Buf != nil {
-		fmt.Fprintln(e.Buf, e.Addr)
-	}
-	return nil, errFailed
-}
-
-type failRequest string
-
-func (r failRequest) RemoteAddrString() string { return string(r) }
-
-type stringRequest string
-
-func (r stringRequest) RemoteAddrString() string { return string(r) }
-
-func TestFailFast(t *testing.T) {
+func TestFailRetry(t *testing.T) {
 	p := NewGeneralProvider(roundRobinSelector(0))
-	ep := newFailEndpoint("1.2.3.4", nil)
-	_, err := FailFast().Retry(context.TODO(), NewNoopRequest("5.6.7.8"), ep, p)
-	if err != errFailed {
-		t.Error(err)
+	r := newNoopRequest("127.0.0.1:12345")
+	ep1 := newSleepEndpoint("127.0.0.1:11111", err1)
+	ep2 := newSleepEndpoint("127.0.0.1:22222", err1)
+	ep3 := newSleepEndpoint("127.0.0.1:33333", err1)
+	p.(EndpointManager).AddEndpoint(ep1)
+	p.(EndpointManager).AddEndpoint(ep2)
+	p.(EndpointManager).AddEndpoint(ep3)
+
+	ff := FailFast()
+	if _, err := ff.Retry(context.TODO(), p, r, ep1, err2); err != err2 {
+		t.Errorf("expect the error '%v', but got '%v'", err2, err)
+	} else if total := ep1.State().TotalConnections; total != 0 {
+		t.Errorf("%s: expect the total connections '%d', but got '%d'", ep1, 0, total)
+	} else if total := ep2.State().TotalConnections; total != 0 {
+		t.Errorf("%s: expect the total connections '%d', but got '%d'", ep2, 0, total)
+	} else if total := ep3.State().TotalConnections; total != 0 {
+		t.Errorf("%s: expect the total connections '%d', but got '%d'", ep3, 0, total)
 	}
 }
 
 func TestFailTry(t *testing.T) {
-	buf := bytes.NewBufferString("\n")
 	p := NewGeneralProvider(roundRobinSelector(0))
-	p.AddEndpoint(newFailEndpoint("1.1.1.1:80", buf))
-	p.AddEndpoint(newFailEndpoint("2.2.2.2:80", buf))
-	p.AddEndpoint(newFailEndpoint("3.3.3.3:80", buf))
+	r := newNoopRequest("127.0.0.1:12345")
+	ep1 := newSleepEndpoint("127.0.0.1:11111", err1)
+	ep2 := newSleepEndpoint("127.0.0.1:22222", err1)
+	ep3 := newSleepEndpoint("127.0.0.1:33333", err1)
+	p.(EndpointManager).AddEndpoint(ep1)
+	p.(EndpointManager).AddEndpoint(ep2)
+	p.(EndpointManager).AddEndpoint(ep3)
 
-	req := stringRequest("0.0.0.0")
-	retry := FailTry(0, retry.DefaultRetryNewer(time.Millisecond*10))
-	_, err := retry.Retry(context.TODO(), req, p.Select(req), p)
-	buf.WriteString(err.Error())
-
-	var lines []string
-	_lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
-	for _, line := range _lines {
-		if line = strings.TrimSpace(line); line != "" {
-			lines = append(lines, line)
-		}
-	}
-
-	expectLines := []string{
-		"2.2.2.2:80",
-		"2.2.2.2:80",
-		"2.2.2.2:80",
-		"error",
-	}
-
-	if len(lines) != len(expectLines) {
-		t.Errorf("line: expect '%d', got '%d'", len(expectLines), len(lines))
-	}
-	for i := 0; i < len(expectLines); i++ {
-		if lines[i] != expectLines[i] {
-			t.Errorf("line '%d': expect '%s', got '%s'", i, expectLines[i], lines[i])
-		}
+	ff := FailTry(4, retry.DefaultRetryNewer(time.Millisecond*10))
+	if _, err := ff.Retry(context.TODO(), p, r, ep1, err2); err != err1 {
+		t.Errorf("expect the error '%v', but got '%v'", err1, err)
+	} else if total := ep1.State().TotalConnections; total != 4 {
+		t.Errorf("%s: expect the total connections '%d', but got '%d'", ep1, 4, total)
+	} else if total := ep2.State().TotalConnections; total != 0 {
+		t.Errorf("%s: expect the total connections '%d', but got '%d'", ep2, 0, total)
+	} else if total := ep3.State().TotalConnections; total != 0 {
+		t.Errorf("%s: expect the total connections '%d', but got '%d'", ep3, 0, total)
 	}
 }
 
 func TestFailOver(t *testing.T) {
-	buf := bytes.NewBufferString("\n")
 	p := NewGeneralProvider(roundRobinSelector(0))
-	p.AddEndpoint(newFailEndpoint("1.1.1.1:80", buf))
-	p.AddEndpoint(newFailEndpoint("2.2.2.2:80", buf))
-	p.AddEndpoint(newFailEndpoint("3.3.3.3:80", buf))
+	r := newNoopRequest("127.0.0.1:12345")
+	ep1 := newSleepEndpoint("127.0.0.1:11111", err1)
+	ep2 := newSleepEndpoint("127.0.0.1:22222", err1)
+	ep3 := newSleepEndpoint("127.0.0.1:33333", err1)
+	p.(EndpointManager).AddEndpoint(ep1)
+	p.(EndpointManager).AddEndpoint(ep2)
+	p.(EndpointManager).AddEndpoint(ep3)
 
-	req := stringRequest("0.0.0.0")
-	retry := FailOver(0, retry.DefaultRetryNewer(time.Millisecond*10))
-	_, err := retry.Retry(context.TODO(), req, p.Select(req), p)
-	buf.WriteString(err.Error())
-
-	var lines []string
-	_lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
-	for _, line := range _lines {
-		if line = strings.TrimSpace(line); line != "" {
-			lines = append(lines, line)
-		}
-	}
-
-	expectLines := []string{
-		"3.3.3.3:80",
-		"1.1.1.1:80",
-		"2.2.2.2:80",
-		"error",
-	}
-
-	if len(lines) != len(expectLines) {
-		t.Errorf("line: expect '%d', got '%d'", len(expectLines), len(lines))
-	}
-	for i := 0; i < len(expectLines); i++ {
-		if lines[i] != expectLines[i] {
-			t.Errorf("line '%d': expect '%s', got '%s'", i, expectLines[i], lines[i])
-		}
+	ff := FailOver(0, retry.DefaultRetryNewer(time.Millisecond*10))
+	if _, err := ff.Retry(context.TODO(), p, r, ep1, err2); err != err1 {
+		t.Errorf("expect the error '%v', but got '%v'", err1, err)
+	} else if total := ep1.State().TotalConnections; total != 1 {
+		t.Errorf("%s: expect the total connections '%d', but got '%d'", ep1, 1, total)
+	} else if total := ep2.State().TotalConnections; total != 1 {
+		t.Errorf("%s: expect the total connections '%d', but got '%d'", ep2, 1, total)
+	} else if total := ep3.State().TotalConnections; total != 1 {
+		t.Errorf("%s: expect the total connections '%d', but got '%d'", ep3, 1, total)
 	}
 }

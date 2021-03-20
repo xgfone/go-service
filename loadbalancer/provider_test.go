@@ -1,4 +1,4 @@
-// Copyright 2020 xgfone
+// Copyright 2021 xgfone
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,61 +15,57 @@
 package loadbalancer
 
 import (
+	"errors"
 	"testing"
+	"time"
 )
 
-func TestGeneralProvider_ProviderEndpointManager(t *testing.T) {
-	p := NewGeneralProvider(RandomSelector())
+func TestSessionProvider(t *testing.T) {
+	p := NewSessionProvider(roundRobinSelector(0), nil, 0)
+	p.SetSession(NewMemorySession(time.Second * 10))
+	p.SetSessionTimeout(time.Second * 30)
+	defer p.Close()
 
-	p.AddEndpoint(NewNoopEndpoint("127.0.0.1:8001"))
-	p.AddEndpoint(NewNoopEndpoint("127.0.0.1:8002"))
-	p.AddEndpoint(NewNoopEndpoint("127.0.0.1:8003"))
-	for i, ep := range p.Endpoints() {
-		switch i {
-		case 0:
-			if ep.String() != "127.0.0.1:8001" {
-				t.Errorf("%d: %s", i, ep.String())
-			}
-		case 1:
-			if ep.String() != "127.0.0.1:8002" {
-				t.Errorf("%d: %s", i, ep.String())
-			}
-		case 2:
-			if ep.String() != "127.0.0.1:8003" {
-				t.Errorf("%d: %s", i, ep.String())
-			}
-		}
+	desc := "SessionProvider(session=memory, strategy=round_robin)"
+	if s := p.String(); s != desc {
+		t.Errorf("expect '%s', but got '%s'", desc, s)
 	}
 
-	p.DelEndpoint(NewNoopEndpoint("127.0.0.1:8002"))
-	for i, ep := range p.Endpoints() {
-		switch i {
-		case 0:
-			if ep.String() != "127.0.0.1:8001" {
-				t.Errorf("%d: %s", i, ep.String())
-			}
-		case 1:
-			if ep.String() != "127.0.0.1:8003" {
-				t.Errorf("%d: %s", i, ep.String())
-			}
-		}
+	ep11 := newSleepEndpoint("127.0.0.1:11111", nil)
+	ep22 := newSleepEndpoint("127.0.0.1:22222", nil)
+	ep33 := newSleepEndpoint("127.0.0.1:33333", nil)
+	p.AddEndpoint(ep11)
+	p.AddEndpoint(ep22)
+	p.AddEndpoint(ep33)
+
+	req := newNoopRequest("127.0.0.1:12345")
+	ep1 := p.Select(req, true) // First
+	if ep1 == nil || ep1.String() != "127.0.0.1:22222" {
+		t.Errorf("expect the endpoint '%s', but got '%v'", "127.0.0.1:22222", ep1)
+	}
+	ep2 := p.GetSession().GetEndpoint(req.SessionID())
+	if ep2 == nil || ep2.String() != "127.0.0.1:22222" {
+		t.Errorf("expect the endpoint '%s', but got '%v'", "127.0.0.1:22222", ep2)
 	}
 
-	p.AddEndpoint(NewNoopEndpoint("127.0.0.1:8004"))
-	for i, ep := range p.Endpoints() {
-		switch i {
-		case 0:
-			if ep.String() != "127.0.0.1:8001" {
-				t.Errorf("%d: %s", i, ep.String())
-			}
-		case 1:
-			if ep.String() != "127.0.0.1:8003" {
-				t.Errorf("%d: %s", i, ep.String())
-			}
-		case 2:
-			if ep.String() != "127.0.0.1:8004" {
-				t.Errorf("%d: %s", i, ep.String())
-			}
-		}
+	ep1 = p.Select(req, false) // Retry
+	if ep1 == nil || ep1.String() != "127.0.0.1:33333" {
+		t.Errorf("expect the endpoint '%s', but got '%v'", "127.0.0.1:33333", ep1)
+	}
+	ep2 = p.GetSession().GetEndpoint(req.SessionID())
+	if ep2 == nil || ep2.String() != "127.0.0.1:33333" {
+		t.Errorf("expect the endpoint '%s', but got '%v'", "127.0.0.1:33333", ep2)
+	}
+
+	p.Finish(req, nil)
+	ep2 = p.GetSession().GetEndpoint(req.SessionID())
+	if ep2 == nil || ep2.String() != "127.0.0.1:33333" {
+		t.Errorf("expect the endpoint '%s', but got '%v'", "127.0.0.1:33333", ep2)
+	}
+
+	p.Finish(req, errors.New("error"))
+	ep2 = p.GetSession().GetEndpoint(req.SessionID())
+	if ep2 != nil {
+		t.Errorf("expect the endpoint '%v', but got '%v'", nil, ep2)
 	}
 }

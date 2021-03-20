@@ -1,4 +1,4 @@
-// Copyright 2020 xgfone
+// Copyright 2021 xgfone
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,21 +21,20 @@ import (
 	"github.com/xgfone/go-service/retry"
 )
 
-// FailRetry is used to retry the service.
+// FailRetry is used to retry to forward the request.
 type FailRetry interface {
 	// String returns the name of FailRetry.
 	String() string
 
-	// Retry calls the endpoint to finish the service. If the endpoint returns
-	// the error, it will retry it.
+	// Retry retries to forward the request again.
 	//
-	// ep is the initial endpoint, which failed to be call, so the request
-	// should be retried to call by the initial endpoint or a new one from
-	// Provider instead.
-	Retry(c context.Context, r Request, ep Endpoint, p Provider) (Response, error)
+	// Endpoint is the initial endpoint, which failed to forward the request.
+	// error is the error which is returned by Endpoint.
+	//
+	// The implementation maybe retry the initial endpoint or a new one
+	// from the provider instead.
+	Retry(context.Context, Provider, Request, Endpoint, error) (response interface{}, err error)
 }
-
-/// -------------------------------------------------------------------------
 
 // FailFast returns a fail handler without any retry.
 //
@@ -44,13 +43,10 @@ func FailFast() FailRetry { return failfastRetry{} }
 
 type failfastRetry struct{}
 
-func (r failfastRetry) String() string { return "fastfail" }
-func (r failfastRetry) Retry(ctx context.Context, req Request, ep Endpoint,
-	p Provider) (Response, error) {
-	return ep.RoundTrip(ctx, req)
+func (f failfastRetry) String() string { return "fastfail" }
+func (f failfastRetry) Retry(c context.Context, p Provider, r Request, ep Endpoint, e error) (interface{}, error) {
+	return nil, e
 }
-
-/// -------------------------------------------------------------------------
 
 // FailTry returns a fail handler, which will retry the same endpoint
 // until the maximum retry number.
@@ -89,29 +85,31 @@ type failRetry struct {
 	retryf func(int) retry.Retry
 }
 
-func (r failRetry) String() string { return r.name }
-func (r failRetry) Retry(ctx context.Context, req Request, ep Endpoint,
-	p Provider) (Response, error) {
-	num := r.maxnum
+func (f failRetry) String() string { return f.name }
+
+func (f failRetry) Retry(c context.Context, p Provider, r Request, ep Endpoint, e error) (interface{}, error) {
+	num := f.maxnum
 	if num == 0 {
 		if num = p.Len(); num == 0 {
-			return nil, ErrNoAvailableEndpoint
+			return nil, e
 		}
 	}
 
-	resp, err := r.retryf(num-1).Call(ctx, r.call, req, ep, p)
+	resp, err := f.retryf(num-1).Call(c, f.call, r, ep, p)
 	if err == retry.ErrEndRetry {
-		err = ErrNoAvailableEndpoint
+		err = e
 	}
+
 	return resp, err
 }
-func (r failRetry) call(c context.Context, args ...interface{}) (interface{}, error) {
-	if r.sameep {
+
+func (f failRetry) call(c context.Context, args ...interface{}) (interface{}, error) {
+	if f.sameep {
 		return args[1].(Endpoint).RoundTrip(c, args[0].(Request))
 	}
 
 	req := args[0].(Request)
-	if ep := args[2].(Provider).Select(req); ep != nil {
+	if ep := args[2].(Provider).Select(req, false); ep != nil {
 		return ep.RoundTrip(c, req)
 	}
 

@@ -1,4 +1,4 @@
-// Copyright 2020 xgfone
+// Copyright 2021 xgfone
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,17 +14,27 @@
 
 package loadbalancer
 
-import "context"
+import (
+	"context"
+	"io"
+)
 
 // RoundTripper is used to emit a request and to get the corresponding response.
 type RoundTripper interface {
-	RoundTrip(context.Context, Request) (Response, error)
+	RoundTrip(context.Context, Request) (response interface{}, err error)
 }
 
 // RoundTripperFunc is an adapter to allow the ordinary functions as RoundTripper.
-type RoundTripperFunc func(context.Context, Request) (Response, error)
+type RoundTripperFunc func(context.Context, Request) (response interface{}, err error)
 
 // RoundTrip implements RoundTripper.
-func (f RoundTripperFunc) RoundTrip(c context.Context, r Request) (Response, error) {
+func (f RoundTripperFunc) RoundTrip(c context.Context, r Request) (interface{}, error) {
 	return f(c, r)
+}
+
+// LoadBalancerRoundTripper is the loadbalancer round tripper.
+type LoadBalancerRoundTripper interface {
+	Name() string
+	RoundTripper
+	io.Closer
 }

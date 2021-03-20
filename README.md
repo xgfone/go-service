@@ -1,6 +1,6 @@
 # go-service [![Build Status](https://travis-ci.org/xgfone/go-service.svg?branch=master)](https://travis-ci.org/xgfone/go-service) [![GoDoc](https://godoc.org/github.com/xgfone/go-service?status.svg)](https://pkg.go.dev/github.com/xgfone/go-service) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](https://raw.githubusercontent.com/xgfone/go-service/master/LICENSE)
 
-A service library, such as Task Runner, LoadBalancer, HealthCheck or Retry, support `Go1.9+`.
+A service library, such as Task Runner, LoadBalancer, HealthCheck or Retry, support `Go1.15+`.
 
 - 1 [Installation](#1-installation)
 - 2 [Example](#2-example)
@@ -96,28 +96,9 @@ import (
 	"github.com/xgfone/go-service/loadbalancer"
 )
 
-func addEndpoint(hc *loadbalancer.HealthCheck, url string) {
-	ep, err := loadbalancer.NewHTTPEndpoint(url, nil)
-	if err != nil {
-		panic(err)
-	}
-	hc.AddEndpoint(ep)
-}
-
-func init() {
-	hc := loadbalancer.NewHealthCheck()
-	hc.Interval = time.Second * 10
-	hc.Timeout = time.Second
-	// defer hc.Stop()
-
-	lb := loadbalancer.NewLoadBalancer(nil)
-	hc.Subscribe("", lb.Updater())
-	addEndpoint(hc, "http://192.168.1.1/check_url")
-	addEndpoint(hc, "http://192.168.1.2/check_url")
-	addEndpoint(hc, "http://192.168.1.3/check_url")
-
-	http.DefaultClient.Transport = httputil.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
-		if r.Host == "127.0.0.1:80" {
+func roundTripp(lb *loadbalancer.LoadBalancer, host string) http.RoundTripper {
+	return httputil.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Host == host {
 			resp, err := lb.RoundTrip(context.Background(), loadbalancer.NewHTTPRequest(r, ""))
 			if err != nil {
 				return nil, err
@@ -126,6 +107,14 @@ func init() {
 		}
 		return http.DefaultTransport.RoundTrip(r)
 	})
+}
+
+func addEndpoint(hc *loadbalancer.HealthCheck, addr string) {
+	ep, err := loadbalancer.NewHTTPEndpoint(addr, nil)
+	if err != nil {
+		panic(err)
+	}
+	hc.AddEndpoint(ep)
 }
 
 func printResponse(resp *http.Response, err error) {
@@ -145,6 +134,19 @@ func printResponse(resp *http.Response, err error) {
 }
 
 func main() {
+	lb := loadbalancer.NewLoadBalancer(nil)
+	defer lb.Close()
+
+	hc := loadbalancer.NewHealthCheck()
+	hc.Subscribe("", lb)
+	hc.SetDefaultOption(loadbalancer.HealthCheckOption{Interval: time.Second * 10, Timeout: time.Second})
+	defer hc.Stop()
+
+	http.DefaultClient.Transport = roundTripp(lb, "127.0.0.1:80")
+	addEndpoint(hc, "192.168.1.1")
+	addEndpoint(hc, "192.168.1.2")
+	addEndpoint(hc, "192.168.1.3")
+
 	// Wait to check the health status of all end endpoints.
 	time.Sleep(time.Second)
 
@@ -171,10 +173,18 @@ import (
 	"github.com/xgfone/go-service/loadbalancer"
 )
 
+func addEndpoint(hc *loadbalancer.HealthCheck, addr string) {
+	ep, err := loadbalancer.NewHTTPEndpoint(addr, nil)
+	if err != nil {
+		panic(err)
+	}
+	hc.AddEndpoint(ep)
+}
+
 func proxyHandler(lb *loadbalancer.LoadBalancer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// TODO: Add other headers
-		resp, err := lb.RoundTrip(context.Background(), loadbalancer.NewHTTPRequest(r, ""))
+		resp, err := lb.RoundTrip(context.Background(), loadbalancer.NewHTTPRequest(r, r.Header.Get("SessionID")))
 		if err != nil {
 			w.WriteHeader(502)
 			w.Write([]byte(err.Error()))
@@ -194,27 +204,19 @@ func proxyHandler(lb *loadbalancer.LoadBalancer) http.Handler {
 	})
 }
 
-func addEndpoint(hc *loadbalancer.HealthCheck, url string) {
-	ep, err := loadbalancer.NewHTTPEndpoint(url, nil)
-	if err != nil {
-		panic(err)
-	}
-	hc.AddEndpoint(ep)
-}
-
 func main() {
+	lb := loadbalancer.NewLoadBalancer(nil)
+	defer lb.Close()
+
 	hc := loadbalancer.NewHealthCheck()
-	hc.Interval = time.Second * 10
-	hc.Timeout = time.Second
+	hc.Subscribe("", lb)
+	hc.SetDefaultOption(loadbalancer.HealthCheckOption{Interval: time.Second * 10, Timeout: time.Second})
 	defer hc.Stop()
 
-	lb := loadbalancer.NewLoadBalancer(nil)
-	hc.Subscribe("", lb.Updater())
+	addEndpoint(hc, "192.168.1.1")
+	addEndpoint(hc, "192.168.1.2")
+	addEndpoint(hc, "192.168.1.3")
 
-	addEndpoint(hc, "http://192.168.1.1/check_url")
-	addEndpoint(hc, "http://192.168.1.2/check_url")
-	addEndpoint(hc, "http://192.168.1.3/check_url")
-
-	http.ListenAndServe(":8000", proxyHandler(lb))
+	http.ListenAndServe(":80", proxyHandler(lb))
 }
 ```

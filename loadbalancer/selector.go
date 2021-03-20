@@ -1,4 +1,4 @@
-// Copyright 2020 xgfone
+// Copyright 2021 xgfone
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@ package loadbalancer
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math/rand"
 	"net"
 	"time"
@@ -23,15 +24,64 @@ import (
 
 var random = rand.New(rand.NewSource(time.Now().UnixNano()))
 
-// Selector is used to to select the active endpoint to be used.
+var selectors = make(map[string]Selector)
+
+func init() {
+	RegisterSelector(RandomSelector())
+	RegisterSelector(WeightSelector())
+	RegisterSelector(SourceIPSelector())
+	RegisterSelector(RoundRobinSelector())
+	RegisterSelector(LeastConnectionSelector())
+}
+
+// RegisterSelector registers the selector, and panics if it has been registered.
 //
-// Notice: the selector should return the result as soon as possible.
+// The package has registered the selectors named ""round_robin", "random",
+// weight", "source_ip" and "least_connections". So you can use the function
+// GetSelector to get them.
+func RegisterSelector(selector Selector) {
+	name := selector.String()
+	if _, ok := selectors[name]; ok {
+		panic(fmt.Errorf("the policy selector named '%s' has been registered", name))
+	}
+	selectors[name] = selector
+}
+
+// UnregisterSelector unregisters the selector by the name.
+func UnregisterSelector(name string) { delete(selectors, name) }
+
+// GetSelector returns the selector by the name.
+//
+// Return nil if the selector has not been registered.
+func GetSelector(name string) Selector { return selectors[name] }
+
+// GetSelectors returns all the registered selectors.
+func GetSelectors() []Selector {
+	ss := make([]Selector, 0, len(selectors))
+	for _, s := range selectors {
+		ss = append(ss, s)
+	}
+	return ss
+}
+
+// Selector is used to to select the active endpoint to be used.
 type Selector interface {
 	// String returns the name of the selector.
 	String() string
 
-	// Select returns the selected endpoint from endpoints by the request.
-	Select(request Request, endpoints Endpoints) Endpoint
+	// Select returns the selected endpoint from endpoints by the request
+	// to forward the request.
+	Select(request Request, endpoints []Endpoint) Endpoint
+}
+
+// SelectorManager is used to manage the selector.
+type SelectorManager interface {
+	// GetSelector returns the selector.
+	GetSelector() Selector
+
+	// SetSelector sets the selector to new and returns the old if new and old
+	// are not the same selector. Or do nothing and return nil.
+	SetSelector(new Selector) (old Selector)
 }
 
 type selector struct {
@@ -39,8 +89,10 @@ type selector struct {
 	selector func(Request, Endpoints) Endpoint
 }
 
-func (s selector) String() string                           { return s.name }
-func (s selector) Select(r Request, eps Endpoints) Endpoint { return s.selector(r, eps) }
+func (s selector) String() string                            { return s.name }
+func (s selector) OnStart(Endpoint)                          {}
+func (s selector) OnEnd(Endpoint)                            {}
+func (s selector) Select(r Request, eps []Endpoint) Endpoint { return s.selector(r, eps) }
 
 // SelectorFunc returns a new Selector with the name and the selector.
 func SelectorFunc(name string, s func(Request, Endpoints) Endpoint) Selector {
@@ -71,6 +123,10 @@ func roundRobinSelector(start int) Selector {
 // SourceIPSelector returns an endpoint selector based on the source ip,
 // whose name is "source_ip".
 //
+// If the request has implemented the interface { RemoteAddr() net.Addr },
+// it will get the source ip from RemoteAddr(). Or, parse the source ip
+// from RemoteAddrString().
+//
 // Notice: If failing to parse the remote address, it will degenerate to
 // the RoundRobin selector.
 func SourceIPSelector() Selector {
@@ -86,9 +142,14 @@ func SourceIPSelector() Selector {
 			case *net.UDPAddr:
 				ip = addr.IP
 			default:
-				ip = net.ParseIP(raddr.RemoteAddr().String())
+				addrs := addr.String()
+				if host, _, _ := net.SplitHostPort(addrs); host == "" {
+					ip = net.ParseIP(addrs)
+				} else {
+					ip = net.ParseIP(host)
+				}
 			}
-		} else if host, _, err := net.SplitHostPort(req.RemoteAddrString()); err == nil {
+		} else if host, _, _ := net.SplitHostPort(req.RemoteAddrString()); host != "" {
 			ip = net.ParseIP(host)
 		}
 
@@ -109,8 +170,7 @@ func SourceIPSelector() Selector {
 // WeightSelector returns an endpoint selector based on the weight,
 // whose name is "weight".
 //
-// Notice: If failing to parse the remote address, it will degenerate to
-// the RoundRobin selector.
+// Notice: If all the endpoints have the same weight, select one randomly.
 func WeightSelector() Selector {
 	getWeight := func(ep Endpoint) (weight int) {
 		if we, ok := ep.(WeightEndpoint); ok {
@@ -141,6 +201,43 @@ func WeightSelector() Selector {
 			offset := random.Intn(totalWeight)
 			for i := 0; i < length; i++ {
 				if offset -= weights[i]; offset < 0 {
+					return eps[i]
+				}
+			}
+		}
+
+		return eps[random.Intn(len(eps))]
+	})
+}
+
+// LeastConnectionSelector returns a endpoint selector based on the least
+// connections, whose name is "least_connections".
+//
+// Notice: If all the endpoints have the same number of the connections,
+// select one randomly.
+func LeastConnectionSelector() Selector {
+	return SelectorFunc("least_connections", func(req Request, eps Endpoints) Endpoint {
+		length := len(eps)
+		sameConns := true
+		firstConns := eps[0].State().CurrentConnections
+		totalConns := firstConns
+
+		conns := make([]int64, length)
+		conns[0] = firstConns
+
+		for i := 1; i < length; i++ {
+			conn := eps[i].State().CurrentConnections
+			conns[i] = conn
+			totalConns += conn
+			if sameConns && conn != firstConns {
+				sameConns = false
+			}
+		}
+
+		if !sameConns && totalConns > 0 {
+			offset := totalConns - random.Int63n(totalConns)
+			for i := 0; i < length; i++ {
+				if offset -= conns[i]; offset < 0 {
 					return eps[i]
 				}
 			}

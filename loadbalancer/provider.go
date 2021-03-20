@@ -1,4 +1,4 @@
-// Copyright 2020 xgfone
+// Copyright 2021 xgfone
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,101 +15,85 @@
 package loadbalancer
 
 import (
+	"fmt"
 	"io"
-	"sort"
 	"sync"
 	"sync/atomic"
 )
 
-// Provider is a provider of the endpoints.
+// Provider is a provider of the endpoints, which should be thread-safe.
 type Provider interface {
+	// Clean the underlying resource when it's destroyed.
 	io.Closer
+
+	// Return the description of the provider.
+	fmt.Stringer
+
+	// Strategy returns the name of the strategy to select the endpoint.
+	Strategy() string
 
 	// Len returns the number of the endpoints.
 	Len() int
+
+	// Endpoints returns the list of the inner endpoints.
+	Endpoints() Endpoints
 
 	// IsActive reports whether the endpoint is still active.
 	IsActive(Endpoint) bool
 
 	// Select selects an endpoint by the Request.
-	Select(Request) Endpoint
+	//
+	// If new is true, it represents that it's the first.
+	// Or, it means to select another endpoint to retry to forward the request.
+	Select(req Request, new bool) Endpoint
+
+	// Finish is called when finishing or failing to forward the request.
+	Finish(req Request, err error)
 }
 
-// ProviderEndpointManager is an interface to manage the endpoints.
-type ProviderEndpointManager interface {
-	// Endpoints should returns the copy of all the endpoints.
-	Endpoints() Endpoints
-	AddEndpoint(Endpoint)
-	DelEndpoint(Endpoint)
+// NewGeneralProvider returns a new general Provider, which has also implemented
+// the interface EndpointManager and SelectorManager.
+//
+// selector is RoundRobinSelector() by default.
+func NewGeneralProvider(selector Selector) Provider {
+	if selector == nil {
+		selector = RoundRobinSelector()
+	}
+
+	return &generalProvider{selector: selector}
 }
 
-// ProviderSelector is used to manage the selector by the provider.
-type ProviderSelector interface {
-	GetSelector() Selector
-	SetSelector(Selector)
-}
+var _ Provider = &generalProvider{}
+var _ EndpointManager = &generalProvider{}
+var _ SelectorManager = &generalProvider{}
 
-var (
-	_ Provider                = &GeneralProvider{}
-	_ ProviderSelector        = &GeneralProvider{}
-	_ ProviderEndpointManager = &GeneralProvider{}
-)
-
-// GeneralProvider is a general provider of the endpoints.
-type GeneralProvider struct {
+type generalProvider struct {
 	lock      sync.RWMutex
 	selector  Selector
 	endpoints Endpoints
 	eplen     uint32
 }
 
-// NewGeneralProvider returns a new GeneralProvider with the selector.
-//
-// If selector is nil, it uses RoundRobinSelector as the default.
-func NewGeneralProvider(selector Selector) *GeneralProvider {
-	if selector == nil {
-		selector = RoundRobinSelector()
-	}
-
-	return &GeneralProvider{
-		selector:  selector,
-		endpoints: make(Endpoints, 0, 8),
-	}
-}
-
-// GetSelector returns the selector.
-func (p *GeneralProvider) GetSelector() Selector {
-	p.lock.RLock()
-	s := p.selector
-	p.lock.RUnlock()
-	return s
-}
-
-// SetSelector resets the selector to s.
-func (p *GeneralProvider) SetSelector(s Selector) {
-	if s == nil {
-		panic("GeneralProvider: the selector must not be nil")
-	}
-
-	p.lock.Lock()
-	p.selector = s
-	p.lock.Unlock()
-}
-
-func (p *GeneralProvider) updateLen() {
+func (p *generalProvider) updateLen() {
 	atomic.StoreUint32(&p.eplen, uint32(len(p.endpoints)))
 }
 
-// Close implements the interface io.Closer.
-func (p *GeneralProvider) Close() error { return nil }
+func (p *generalProvider) Len() int { return int(atomic.LoadUint32(&p.eplen)) }
 
-// Len returns the number of the endpoints.
-func (p *GeneralProvider) Len() int {
-	return int(atomic.LoadUint32(&p.eplen))
+func (p *generalProvider) Close() error { return nil }
+
+func (p *generalProvider) String() string {
+	return fmt.Sprintf("GeneralProvider(strategy=%s)", p.Strategy())
 }
 
-// Endpoints returns the copy of all the endpoints.
-func (p *GeneralProvider) Endpoints() Endpoints {
+func (p *generalProvider) Strategy() string {
+	p.lock.RLock()
+	name := p.selector.String()
+	p.lock.RUnlock()
+	return name
+}
+
+func (p *generalProvider) Endpoints() Endpoints {
 	p.lock.RLock()
 	endpoints := make(Endpoints, len(p.endpoints))
 	copy(endpoints, p.endpoints)
@@ -117,45 +101,7 @@ func (p *GeneralProvider) Endpoints() Endpoints {
 	return endpoints
 }
 
-// AddEndpoint adds the endpoint.
-//
-// If the endpoint has been added, do nothing.
-func (p *GeneralProvider) AddEndpoint(endpoint Endpoint) {
-	p.lock.Lock()
-	if !p.endpoints.Contains(endpoint) {
-		p.endpoints = append(p.endpoints, endpoint)
-		sort.Sort(p.endpoints)
-		p.updateLen()
-	}
-	p.lock.Unlock()
-}
-
-// DelEndpoint deletes the endpoint.
-func (p *GeneralProvider) DelEndpoint(endpoint Endpoint) {
-	p.delEndpointByString(endpoint.String())
-}
-
-// DelEndpointByString deletes the endpoint.
-func (p *GeneralProvider) delEndpointByString(endpoint string) {
-	var exist bool
-	p.lock.Lock()
-	for i, ep := range p.endpoints {
-		if ep.String() == endpoint {
-			exist = true
-			p.endpoints[i] = nil
-			break
-		}
-	}
-	if exist {
-		sort.Sort(p.endpoints)
-		p.endpoints = p.endpoints[:len(p.endpoints)-1]
-		p.updateLen()
-	}
-	p.lock.Unlock()
-}
-
-// IsActive reports whether the endpoint is still active.
-func (p *GeneralProvider) IsActive(endpoint Endpoint) (active bool) {
+func (p *generalProvider) IsActive(endpoint Endpoint) (active bool) {
 	addr := endpoint.String()
 	p.lock.RLock()
 	active = binarySearch(p.endpoints, addr) > -1
@@ -163,28 +109,64 @@ func (p *GeneralProvider) IsActive(endpoint Endpoint) (active bool) {
 	return
 }
 
-// Select selects an endpoint by the selector.
-func (p *GeneralProvider) Select(req Request) (endpoint Endpoint) {
+func (p *generalProvider) Finish(req Request, err error) {}
+func (p *generalProvider) Select(req Request, new bool) (ep Endpoint) {
 	p.lock.RLock()
 	if len(p.endpoints) > 0 {
-		endpoint = p.selector.Select(req, p.endpoints)
+		ep = p.selector.Select(req, p.endpoints)
 	}
 	p.lock.RUnlock()
 	return
 }
 
-func binarySearch(eps Endpoints, ep string) int {
-	for low, high := 0, len(eps)-1; low <= high; {
-		mid := (low + high)
-		_ep := eps[mid].String()
-		if ep == _ep {
-			return mid
-		} else if ep < _ep {
-			high = mid - 1
-		} else {
-			low = mid + 1
+func (p *generalProvider) AddEndpoint(endpoint Endpoint) {
+	p.lock.Lock()
+	if p.endpoints.NotContains(endpoint) {
+		p.endpoints = append(p.endpoints, endpoint)
+		p.endpoints.Sort()
+		p.updateLen()
+	}
+	p.lock.Unlock()
+}
+
+func (p *generalProvider) DelEndpoint(endpoint Endpoint) {
+	p.delEndpointByAddr(endpoint.String())
+}
+
+func (p *generalProvider) delEndpointByAddr(addr string) {
+	var exist bool
+	p.lock.Lock()
+	for i, ep := range p.endpoints {
+		if ep.String() == addr {
+			exist = true
+			p.endpoints[i] = nil
+			break
 		}
 	}
+	if exist {
+		p.endpoints.Sort()
+		p.endpoints = p.endpoints[:len(p.endpoints)-1]
+		p.updateLen()
+	}
+	p.lock.Unlock()
+}
 
-	return -1
+func (p *generalProvider) GetSelector() Selector {
+	p.lock.RLock()
+	s := p.selector
+	p.lock.RUnlock()
+	return s
+}
+
+func (p *generalProvider) SetSelector(new Selector) (old Selector) {
+	if new == nil {
+		panic("GeneralProvider: the selector must not be nil")
+	}
+
+	p.lock.Lock()
+	if p.selector.String() != new.String() {
+		old, p.selector = p.selector, new
+	}
+	p.lock.Unlock()
+	return
 }

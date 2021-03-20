@@ -1,4 +1,4 @@
-// Copyright 2020 xgfone
+// Copyright 2021 xgfone
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,78 +23,38 @@ import (
 	"time"
 )
 
-// Updater represents a updater to update the endpoint.
-type Updater interface {
-	Name() string
-	AddEndpoint(Endpoint)
-	DelEndpoint(Endpoint)
-}
-
-type updaterFunc struct {
-	name   string
-	update func(addOrDel bool, endpoint Endpoint)
-}
-
-func (u updaterFunc) Name() string            { return u.name }
-func (u updaterFunc) String() string          { return fmt.Sprintf("Updater(%s)", u.name) }
-func (u updaterFunc) AddEndpoint(ep Endpoint) { u.update(true, ep) }
-func (u updaterFunc) DelEndpoint(ep Endpoint) { u.update(false, ep) }
-
-// UpdaterFunc covnerts the function to Updater with the name.
-//
-// If addOrDel is true, it calls the method AddEndpoint. Or call DelEndpoint.
-//
-// Notice: the returned Updater is comparable.
-func UpdaterFunc(name string, f func(addOrDel bool, endpoint Endpoint)) Updater {
-	return updaterFunc{name: name, update: f}
-}
-
-/////////////////////////////////////////////////////////////////////////////
-
 type endpointWrapper struct {
 	Endpoint
 
-	exit     chan struct{}
-	tick     ticker
-	lock     sync.RWMutex
-	timeout  time.Duration
-	interval time.Duration
-	retryNum int
-	failures int
+	exit chan struct{}
+	tick *time.Ticker
+	lock sync.RWMutex
+	hcop HealthCheckOption
+	fail int
 
 	count  int32
 	health uint32
 }
 
-func newEndpointWrapper(ep Endpoint, interval, timeout time.Duration, retryNum int) *endpointWrapper {
-	if interval <= 0 {
-		interval = time.Second * 10
+func newEndpointWrapper(ep Endpoint, o HealthCheckOption) *endpointWrapper {
+	if o.Interval <= 0 {
+		o.Interval = time.Second * 10
 	}
 
 	return &endpointWrapper{
 		Endpoint: ep,
-		exit:     make(chan struct{}),
-		tick:     newTicker(interval),
-		timeout:  timeout,
-		interval: interval,
-		retryNum: retryNum,
 		count:    1,
+		hcop:     o,
+		exit:     make(chan struct{}),
+		tick:     time.NewTicker(o.Interval),
 	}
 }
 
-func (epw *endpointWrapper) IncCount() {
-	atomic.AddInt32(&epw.count, 1)
-}
-
-func (epw *endpointWrapper) DecCount() int32 {
-	return atomic.AddInt32(&epw.count, -1)
-}
-
-func (epw *endpointWrapper) ReferenceCount() int32 {
-	return atomic.LoadInt32(&epw.count)
-}
-
-func (epw *endpointWrapper) Unwrap() Endpoint { return epw.Endpoint }
+func (epw *endpointWrapper) Stop()                    { close(epw.exit) }
+func (epw *endpointWrapper) IncCount()                { atomic.AddInt32(&epw.count, 1) }
+func (epw *endpointWrapper) DecCount() int32          { return atomic.AddInt32(&epw.count, -1) }
+func (epw *endpointWrapper) ReferenceCount() int32    { return atomic.LoadInt32(&epw.count) }
+func (epw *endpointWrapper) UnwrapEndpoint() Endpoint { return epw.Endpoint }
 
 func (epw *endpointWrapper) IsHealthy(context.Context) bool {
 	return atomic.LoadUint32(&epw.health) == 1
@@ -107,46 +67,35 @@ func (epw *endpointWrapper) SetHealthy(healthy bool) (ok bool) {
 	return atomic.CompareAndSwapUint32(&epw.health, 1, 0)
 }
 
-func (epw *endpointWrapper) Reset(interval, timeout time.Duration, retryNum int) {
-	if interval <= 0 {
-		interval = time.Second * 10
+func (epw *endpointWrapper) Reset(o HealthCheckOption) {
+	if o.Interval <= 0 {
+		o.Interval = time.Second * 10
 	}
 
 	epw.lock.Lock()
-	defer epw.lock.Unlock()
-
-	if epw.interval != interval {
-		epw.tick.Reset(interval)
-		epw.interval = interval
+	if epw.hcop != o {
+		epw.hcop = o
+		epw.tick.Reset(o.Interval)
 	}
-
-	if epw.timeout != timeout {
-		epw.timeout = timeout
-	}
-
-	if epw.retryNum != retryNum {
-		epw.retryNum = retryNum
-	}
+	epw.lock.Unlock()
 }
 
 func (epw *endpointWrapper) resetFailures() {
 	epw.lock.Lock()
-	epw.failures = 0
+	epw.fail = 0
 	epw.lock.Unlock()
 }
 
 func (epw *endpointWrapper) incFailures() (new int) {
 	epw.lock.Lock()
-	epw.failures++
-	new = epw.failures
+	epw.fail++
+	new = epw.fail
 	epw.lock.Unlock()
 	return
 }
 
-func (epw *endpointWrapper) Stop() { close(epw.exit) }
 func (epw *endpointWrapper) Check(hc *HealthCheck) {
 	defer epw.tick.Stop()
-
 	epw.check(hc)
 	for {
 		select {
@@ -154,7 +103,7 @@ func (epw *endpointWrapper) Check(hc *HealthCheck) {
 			return
 		case <-epw.exit:
 			return
-		case <-epw.tick.TimeChan():
+		case <-epw.tick.C:
 			epw.check(hc)
 		}
 	}
@@ -168,61 +117,84 @@ func (epw *endpointWrapper) check(hc *HealthCheck) {
 	}()
 
 	epw.lock.RLock()
-	timeout, retryNum, failures := epw.timeout, epw.retryNum, epw.failures
+	o, failures := epw.hcop, epw.fail
 	epw.lock.RUnlock()
 
 	ctx := context.Background()
-	if timeout > 0 {
+	if o.Timeout > 0 {
 		var cancel func()
-		ctx, cancel = context.WithTimeout(ctx, timeout)
+		ctx, cancel = context.WithTimeout(ctx, o.Timeout)
 		defer cancel()
 	}
 
-	healthy := epw.Endpoint.IsHealthy(ctx)
-	if healthy {
+	if epw.Endpoint.IsHealthy(ctx) {
 		hc.updateHealthy(epw, true)
 		if failures > 0 {
 			epw.resetFailures()
 		}
-	} else if epw.incFailures() > retryNum {
+	} else if epw.incFailures() > o.RetryNum {
 		hc.updateHealthy(epw, false)
 	}
 }
 
 /////////////////////////////////////////////////////////////////////////////
 
-var _ ProviderEndpointManager = &HealthCheck{}
+var _ EndpointManager = &HealthCheck{}
 
 type endpointOp struct {
 	Add      bool
 	Endpoint Endpoint
 }
 
+// HealthCheckOption is the duation option to check the endpoint.
+type HealthCheckOption struct {
+	Timeout  time.Duration `json:"timeout,omitempty" xml:"timeout,omitempty"`
+	Interval time.Duration `json:"interval,omitempty" xml:"interval,omitempty"`
+	RetryNum int           `json:"retrynum,omitempty" xml:"retrynum,omitempty"`
+}
+
 // HealthCheck is used to manage the health of the endpoints.
 type HealthCheck struct {
-	Timeout  time.Duration // Default: 0s, no limit
-	Interval time.Duration // Default: 10s
-	RetryNum int           // Default: 0, no retry
-
 	lock        sync.RWMutex
-	updaters    map[string]Updater            // map[Updater.Name]Updater
-	subscribers map[string]map[string]Updater // map[endpoint]map[Updater.Name]Updater
-	endpoints   map[string]*endpointWrapper   // map[endpoint]endpointWrapper
+	option      HealthCheckOption
+	updaters    map[string]EndpointUpdater            // map[EndpointUpdater.Name]EndpointUpdater
+	subscribers map[string]map[string]EndpointUpdater // map[endpoint]map[EndpointUpdater.Name]EndpointUpdater
+	endpoints   map[string]*endpointWrapper           // map[endpoint]endpointWrapper
 	updatech    chan endpointOp
 	exit        chan struct{}
 }
 
-// NewHealthCheck returns a new NewHealthCheck.
+// NewHealthCheck returns a new NewHealthCheck with the option.
+//
+//   HealthCheckOption{Interval: time.Second * 10}
+//
 func NewHealthCheck() *HealthCheck {
 	hc := &HealthCheck{
-		updaters:    make(map[string]Updater, 4),
-		subscribers: make(map[string]map[string]Updater, 16),
+		updaters:    make(map[string]EndpointUpdater, 4),
+		subscribers: make(map[string]map[string]EndpointUpdater, 16),
 		endpoints:   make(map[string]*endpointWrapper, 32),
 		updatech:    make(chan endpointOp, 32),
 		exit:        make(chan struct{}),
 	}
+	hc.SetDefaultOption(HealthCheckOption{Interval: time.Second * 10})
 	go hc.updateEndpoint()
 	return hc
+}
+
+// GetDefaultOption returns the default option of the health check.
+func (hc *HealthCheck) GetDefaultOption() HealthCheckOption {
+	hc.lock.RLock()
+	option := hc.option
+	hc.lock.RUnlock()
+	return option
+}
+
+// SetDefaultOption sets the default option of the health check to o,
+// which will be used by the method AddEndpoint as the health check option.
+func (hc *HealthCheck) SetDefaultOption(o HealthCheckOption) {
+	hc.lock.Lock()
+	hc.option = o
+	hc.lock.Unlock()
 }
 
 // Subscribe subscribes the update of the special endpoint, that's, the updater
@@ -231,7 +203,7 @@ func NewHealthCheck() *HealthCheck {
 // If endpoint is "", the updater is called only if any endpoint has changed.
 //
 // Notice: It should be called before any endpoint is added.
-func (hc *HealthCheck) Subscribe(endpoint string, updater Updater) error {
+func (hc *HealthCheck) Subscribe(endpoint string, updater EndpointUpdater) error {
 	name := updater.Name()
 
 	hc.lock.Lock()
@@ -241,7 +213,7 @@ func (hc *HealthCheck) Subscribe(endpoint string, updater Updater) error {
 	updaters := hc.updaters
 	if endpoint != "" {
 		if updaters, ok = hc.subscribers[endpoint]; !ok {
-			updaters = make(map[string]Updater, 2)
+			updaters = make(map[string]EndpointUpdater, 2)
 			hc.subscribers[endpoint] = updaters
 		}
 	}
@@ -258,7 +230,7 @@ func (hc *HealthCheck) Subscribe(endpoint string, updater Updater) error {
 func (hc *HealthCheck) Unsubscribe(endpoint string) {
 	hc.lock.Lock()
 	if endpoint == "" {
-		hc.updaters = make(map[string]Updater, 2)
+		hc.updaters = make(map[string]EndpointUpdater, 2)
 	} else {
 		delete(hc.subscribers, endpoint)
 	}
@@ -266,18 +238,18 @@ func (hc *HealthCheck) Unsubscribe(endpoint string) {
 }
 
 // GetAllSubscribers returns all the subscribers.
-func (hc *HealthCheck) GetAllSubscribers() map[string][]Updater {
+func (hc *HealthCheck) GetAllSubscribers() map[string][]EndpointUpdater {
 	hc.lock.RLock()
-	us := make(map[string][]Updater, len(hc.subscribers)+1)
+	us := make(map[string][]EndpointUpdater, len(hc.subscribers)+1)
 
-	updaters := make([]Updater, 0, len(hc.updaters))
+	updaters := make([]EndpointUpdater, 0, len(hc.updaters))
 	for _, updater := range hc.updaters {
 		updaters = append(updaters, updater)
 	}
 	us[""] = updaters
 
 	for endpoint, eupdaters := range hc.subscribers {
-		updaters := make([]Updater, 0, len(eupdaters))
+		updaters := make([]EndpointUpdater, 0, len(eupdaters))
 		for _, updater := range eupdaters {
 			updaters = append(updaters, updater)
 		}
@@ -289,16 +261,16 @@ func (hc *HealthCheck) GetAllSubscribers() map[string][]Updater {
 }
 
 // GetSubscribers returns the subscribers of the endpoint.
-func (hc *HealthCheck) GetSubscribers(endpoint string) (updaters []Updater) {
+func (hc *HealthCheck) GetSubscribers(endpoint string) (updaters []EndpointUpdater) {
 	hc.lock.RLock()
 	if endpoint == "" {
-		updaters = make([]Updater, 0, len(hc.updaters))
+		updaters = make([]EndpointUpdater, 0, len(hc.updaters))
 		for _, updater := range hc.updaters {
 			updaters = append(updaters, updater)
 		}
 	} else {
 		eupdaters := hc.subscribers[endpoint]
-		updaters = make([]Updater, 0, len(eupdaters))
+		updaters = make([]EndpointUpdater, 0, len(eupdaters))
 		for _, updater := range eupdaters {
 			updaters = append(updaters, updater)
 		}
@@ -308,7 +280,7 @@ func (hc *HealthCheck) GetSubscribers(endpoint string) (updaters []Updater) {
 }
 
 // UnsubscribeByUpdater unsubscribes the special updater of all the endpoints.
-func (hc *HealthCheck) UnsubscribeByUpdater(updater Updater) {
+func (hc *HealthCheck) UnsubscribeByUpdater(updater EndpointUpdater) {
 	name := updater.Name()
 	hc.lock.Lock()
 
@@ -375,7 +347,7 @@ func (hc *HealthCheck) HasEndpoint(endpoint string) bool {
 }
 
 // GetEndpointsByUpdater returns the list of the endpoints by the updater.
-func (hc *HealthCheck) GetEndpointsByUpdater(u Updater) (eps Endpoints) {
+func (hc *HealthCheck) GetEndpointsByUpdater(u EndpointUpdater) (eps Endpoints) {
 	name := u.Name()
 	hc.lock.RLock()
 	for endpoint, updaters := range hc.subscribers {
@@ -403,23 +375,23 @@ func (hc *HealthCheck) Endpoints() Endpoints {
 // AddEndpointWithDuration add the endpoint to check its health status.
 //
 // If the endpoint has been added, update it.
-func (hc *HealthCheck) AddEndpointWithDuration(ep Endpoint, interval, timeout time.Duration, retryNum int) {
+func (hc *HealthCheck) AddEndpointWithDuration(ep Endpoint, o HealthCheckOption) {
 	addr := ep.String()
 	hc.lock.Lock()
 	if ew, ok := hc.endpoints[addr]; ok {
 		ew.IncCount()
-		ew.Reset(interval, timeout, retryNum)
+		ew.Reset(o)
 	} else {
-		ew := newEndpointWrapper(ep, interval, timeout, retryNum)
+		ew := newEndpointWrapper(ep, o)
 		hc.endpoints[addr] = ew
 		go ew.Check(hc)
 	}
 	hc.lock.Unlock()
 }
 
-// AddEndpoint is equal to hc.AddEndpointWithDuration(ep, hc.Interval, hc.Timeout).
+// AddEndpoint is equal to hc.AddEndpointWithDuration(ep, hc.GetOption()).
 func (hc *HealthCheck) AddEndpoint(ep Endpoint) {
-	hc.AddEndpointWithDuration(ep, hc.Interval, hc.Timeout, hc.RetryNum)
+	hc.AddEndpointWithDuration(ep, hc.GetDefaultOption())
 }
 
 // DelEndpoint is equal to DelEndpointByString(endpoint.String()).
@@ -432,17 +404,17 @@ func (hc *HealthCheck) DelEndpoint(endpoint Endpoint) {
 // Notice: In order to really delete the endpoint, call the same times
 // of DelEndpoint as AddEndpoint.
 func (hc *HealthCheck) DelEndpointByString(endpoint string) {
-	hc.delEndpoint(endpoint, false)
+	hc.delEndpointSafe(endpoint, false)
 }
 
 // DelEndpointByForce ignores the reference count of the endpoint
 // deletes it forcibly.
 func (hc *HealthCheck) DelEndpointByForce(endpoint string) {
-	hc.delEndpoint(endpoint, true)
+	hc.delEndpointSafe(endpoint, true)
 }
 
 // DelEndpointsByUpdater deletes the endpoints by the updater.
-func (hc *HealthCheck) DelEndpointsByUpdater(u Updater) {
+func (hc *HealthCheck) DelEndpointsByUpdater(u EndpointUpdater) {
 	name := u.Name()
 	hc.lock.Lock()
 	for endpoint, updaters := range hc.subscribers {

@@ -1,3 +1,3 @@
 module github.com/xgfone/go-service
 
-go 1.11
+go 1.15
