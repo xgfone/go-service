@@ -70,6 +70,8 @@ func HTTPEndpointHealthChecker(client *http.Client, info HTTPEndpointInfo) (
 	})
 }
 
+var defaultHTTPStatusCodeRanges = []HTTPStatusCodeRange{{End: 400}}
+
 // HTTPStatusCodeRange is the range of the http status code,
 // which is semi-closure, that's, [Begin, End).
 type HTTPStatusCodeRange struct {
@@ -121,7 +123,7 @@ func HTTPEndpointHealthCheckerWithConfig(c *HTTPEndpointHealthCheckerConfig) (
 	}
 
 	if len(conf.Codes) == 0 {
-		conf.Codes = []HTTPStatusCodeRange{{End: 400}}
+		conf.Codes = defaultHTTPStatusCodeRanges
 	}
 
 	return func(c context.Context, addr string, _ HTTPEndpointInfo) bool {
