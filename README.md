@@ -134,7 +134,7 @@ func printResponse(resp *http.Response, err error) {
 }
 
 func main() {
-	lb := loadbalancer.NewLoadBalancer(nil)
+	lb := loadbalancer.NewLoadBalancer("", nil)
 	defer lb.Close()
 
 	hc := loadbalancer.NewHealthCheck()
@@ -205,7 +205,7 @@ func proxyHandler(lb *loadbalancer.LoadBalancer) http.Handler {
 }
 
 func main() {
-	lb := loadbalancer.NewLoadBalancer(nil)
+	lb := loadbalancer.NewLoadBalancer("", nil)
 	defer lb.Close()
 
 	hc := loadbalancer.NewHealthCheck()
