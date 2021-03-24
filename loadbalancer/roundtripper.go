@@ -19,8 +19,6 @@ import (
 	"io"
 	"net/http"
 	"time"
-
-	"github.com/xgfone/go-service/httputil"
 )
 
 // RoundTripper is used to emit a request and to get the corresponding response.
@@ -43,8 +41,10 @@ type LoadBalancerRoundTripper interface {
 	io.Closer
 }
 
-// HTTPRoundTripperConfig is used to configure the HTTP RoundTripper.
-type HTTPRoundTripperConfig struct {
+// HTTPRoundTripper is used as the http RoundTripper to intercept the request,
+// which finds the loadbalancer roundtripper by the reqest to forward it.
+// Or use the default transport to forward it.
+type HTTPRoundTripper struct {
 	// Timeout is the maximum timeout to forward the reqest.
 	//
 	// Default: 0
@@ -70,59 +70,43 @@ type HTTPRoundTripperConfig struct {
 	GetRoundTripper func(*http.Request) RoundTripper
 }
 
-// NewHTTPRoundTripper returns a new http.RoundTripper, which finds
-// the loadbalancer roundtripper by the reqest to forward it. Or use the
-// default transport to forward it. And you can use it to as the Transport
-// of http.Client to intercept the request.
-func NewHTTPRoundTripper(c HTTPRoundTripperConfig) http.RoundTripper {
-	if c.GetRoundTripper == nil {
-		panic("ToHTTPRoundTripper: GetRoundTripper must not be nil")
-	} else if c.GetSessionID == nil {
-		c.GetSessionID = func(*http.Request) string { return "" }
+var _ http.RoundTripper = &HTTPRoundTripper{}
+
+// RoundTrip implements the interface http.RoundTripper.
+func (hrt *HTTPRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	if rt := hrt.GetRoundTripper(r); rt != nil {
+		ctx := context.Background()
+		if hrt.Timeout > 0 {
+			var cancel func()
+			ctx, cancel = context.WithTimeout(ctx, hrt.Timeout)
+			defer cancel()
+		}
+
+		var sid string
+		if hrt.GetSessionID != nil {
+			sid = hrt.GetSessionID(r)
+		}
+
+		resp, err := rt.RoundTrip(ctx, NewHTTPRequest(r, sid))
+		if err != nil {
+			return nil, err
+		}
+		return resp.(*http.Response), nil
 	}
 
-	return httputil.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
-		if rt := c.GetRoundTripper(r); rt != nil {
-			ctx := context.Background()
-			if c.Timeout > 0 {
-				var cancel func()
-				ctx, cancel = context.WithTimeout(ctx, c.Timeout)
-				defer cancel()
-			}
+	if hrt.Timeout > 0 {
+		ctx := r.Context()
+		if _, ok := ctx.Deadline(); !ok {
+			var cancel func()
+			ctx, cancel = context.WithTimeout(ctx, hrt.Timeout)
+			defer cancel()
 
-			resp, err := rt.RoundTrip(ctx, NewHTTPRequest(r, c.GetSessionID(r)))
-			if err != nil {
-				return nil, err
-			}
-			return resp.(*http.Response), nil
+			r = r.WithContext(ctx)
 		}
+	}
 
-		if c.Timeout > 0 {
-			ctx := r.Context()
-			if _, ok := ctx.Deadline(); !ok {
-				var cancel func()
-				ctx, cancel = context.WithTimeout(ctx, c.Timeout)
-				defer cancel()
-
-				r = r.WithContext(ctx)
-			}
-		}
-
+	if hrt.Transport == nil {
 		return http.DefaultTransport.RoundTrip(r)
-	})
+	}
+	return hrt.Transport.RoundTrip(r)
 }
-
-/*
-func roundTripp(lb *loadbalancer.LoadBalancer, host string) http.RoundTripper {
-	return httputil.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
-		if r.Host == host {
-			resp, err := lb.RoundTrip(context.Background(), loadbalancer.NewHTTPRequest(r, ""))
-			if err != nil {
-				return nil, err
-			}
-			return resp.(*http.Response), nil
-		}
-		return http.DefaultTransport.RoundTrip(r)
-	})
-}
-*/
