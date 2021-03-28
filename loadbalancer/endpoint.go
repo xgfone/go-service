@@ -42,6 +42,10 @@ type Request interface {
 type EndpointState struct {
 	TotalConnections   int64 // The total number of all the connections.
 	CurrentConnections int64 // The number of all the current connections.
+
+	// Extension is the extension data which is contained by the implementation
+	// but EndpointState.
+	Extension interface{}
 }
 
 // Endpoint represents a service endpoint.
