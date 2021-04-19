@@ -109,14 +109,6 @@ func roundTripp(lb *loadbalancer.LoadBalancer, host string) http.RoundTripper {
 	})
 }
 
-func addEndpoint(hc *loadbalancer.HealthCheck, addr string) {
-	ep, err := loadbalancer.NewHTTPEndpoint(addr, nil)
-	if err != nil {
-		panic(err)
-	}
-	hc.AddEndpoint(ep)
-}
-
 func printResponse(resp *http.Response, err error) {
 	if err != nil {
 		fmt.Println(err)
@@ -134,18 +126,21 @@ func printResponse(resp *http.Response, err error) {
 }
 
 func main() {
-	lb := loadbalancer.NewLoadBalancer("", nil)
+	lb := loadbalancer.NewLoadBalancer("default", nil)
 	defer lb.Close()
 
 	hc := loadbalancer.NewHealthCheck()
-	hc.Subscribe("", lb)
-	hc.SetDefaultOption(loadbalancer.HealthCheckOption{Interval: time.Second * 10, Timeout: time.Second})
+	hc.AddUpdater(lb.Name(), lb)
 	defer hc.Stop()
 
 	http.DefaultClient.Transport = roundTripp(lb, "127.0.0.1:80")
-	addEndpoint(hc, "192.168.1.1")
-	addEndpoint(hc, "192.168.1.2")
-	addEndpoint(hc, "192.168.1.3")
+	ep1, _ := loadbalancer.NewHTTPEndpoint("192.168.1.1", nil)
+	ep2, _ := loadbalancer.NewHTTPEndpoint("192.168.1.2", nil)
+	ep3, _ := loadbalancer.NewHTTPEndpoint("192.168.1.3", nil)
+	duration := loadbalancer.EndpointCheckerDuration{Interval: time.Second * 10}
+	hc.AddEndpoint(ep1, loadbalancer.NewHTTPEndpointHealthChecker(ep1.ID()), duration)
+	hc.AddEndpoint(ep2, loadbalancer.NewHTTPEndpointHealthChecker(ep2.ID()), duration)
+	hc.AddEndpoint(ep3, loadbalancer.NewHTTPEndpointHealthChecker(ep3.ID()), duration)
 
 	// Wait to check the health status of all end endpoints.
 	time.Sleep(time.Second)
@@ -173,14 +168,6 @@ import (
 	"github.com/xgfone/go-service/loadbalancer"
 )
 
-func addEndpoint(hc *loadbalancer.HealthCheck, addr string) {
-	ep, err := loadbalancer.NewHTTPEndpoint(addr, nil)
-	if err != nil {
-		panic(err)
-	}
-	hc.AddEndpoint(ep)
-}
-
 func proxyHandler(lb *loadbalancer.LoadBalancer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// TODO: Add other headers
@@ -205,17 +192,20 @@ func proxyHandler(lb *loadbalancer.LoadBalancer) http.Handler {
 }
 
 func main() {
-	lb := loadbalancer.NewLoadBalancer("", nil)
+	lb := loadbalancer.NewLoadBalancer("default", nil)
 	defer lb.Close()
 
 	hc := loadbalancer.NewHealthCheck()
-	hc.Subscribe("", lb)
-	hc.SetDefaultOption(loadbalancer.HealthCheckOption{Interval: time.Second * 10, Timeout: time.Second})
+	hc.AddUpdater(lb.Name(), lb)
 	defer hc.Stop()
 
-	addEndpoint(hc, "192.168.1.1")
-	addEndpoint(hc, "192.168.1.2")
-	addEndpoint(hc, "192.168.1.3")
+	ep1, _ := loadbalancer.NewHTTPEndpoint("192.168.1.1", nil)
+	ep2, _ := loadbalancer.NewHTTPEndpoint("192.168.1.2", nil)
+	ep3, _ := loadbalancer.NewHTTPEndpoint("192.168.1.3", nil)
+	duration := loadbalancer.EndpointCheckerDuration{Interval: time.Second * 10}
+	hc.AddEndpoint(ep1, loadbalancer.NewHTTPEndpointHealthChecker(ep1.ID()), duration)
+	hc.AddEndpoint(ep2, loadbalancer.NewHTTPEndpointHealthChecker(ep2.ID()), duration)
+	hc.AddEndpoint(ep3, loadbalancer.NewHTTPEndpointHealthChecker(ep3.ID()), duration)
 
 	http.ListenAndServe(":80", proxyHandler(lb))
 }

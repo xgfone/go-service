@@ -17,8 +17,8 @@ package loadbalancer
 import (
 	"context"
 	"fmt"
-
-	"github.com/xgfone/go-service/retry"
+	"math/rand"
+	"time"
 )
 
 // FailRetry is used to retry to forward the request.
@@ -33,10 +33,11 @@ type FailRetry interface {
 	//
 	// The implementation maybe retry the initial endpoint or a new one
 	// from the provider instead.
-	Retry(context.Context, Provider, Request, Endpoint, error) (response interface{}, err error)
+	Retry(context.Context, Provider, Request, Endpoint, error) (
+		respEndpoint Endpoint, response interface{}, err error)
 }
 
-// FailFast returns a fail handler without any retry.
+// FailFast returns a fast failure retry without any retry.
 //
 // Notice: the name is "fastfail".
 func FailFast() FailRetry { return failfastRetry{} }
@@ -44,74 +45,114 @@ func FailFast() FailRetry { return failfastRetry{} }
 type failfastRetry struct{}
 
 func (f failfastRetry) String() string { return "fastfail" }
-func (f failfastRetry) Retry(c context.Context, p Provider, r Request, ep Endpoint, e error) (interface{}, error) {
-	return nil, e
+func (f failfastRetry) Retry(ctx context.Context, provider Provider,
+	request Request, endpoint Endpoint, err error) (Endpoint, interface{}, error) {
+	return endpoint, nil, err
 }
 
-// FailTry returns a fail handler, which will retry the same endpoint
+// FailTry returns a failure retry, which will retry the same endpoint
 // until the maximum retry number.
 //
-// If maxnum is equal to 0, it will retry the same endpoint for the number
-// of the endpoints.
+// If maxnum is equal to 0, it is equivalent to 1.
 //
 // Notice: the name is "failtry(maxnum)".
-func FailTry(maxnum int, retryf func(maxnum int) retry.Retry) FailRetry {
-	if maxnum < 0 {
-		panic("FailTry: the retry maximum number must not be a negative integer")
-	}
-	name := fmt.Sprintf("failtry(%d)", maxnum)
-	return failRetry{name: name, maxnum: maxnum, retryf: retryf, sameep: true}
+func FailTry(maxnum int, interval time.Duration) FailRetry {
+	return failTryRetry{maxnum: maxnum, interval: interval}
 }
 
-// FailOver returns a fail handler, which will retry the other endpoints
-// until the maximum retry number.
+type failTryRetry struct {
+	interval time.Duration
+	maxnum   int
+}
+
+func (r failTryRetry) String() string { return fmt.Sprintf("failtry(%d)", r.maxnum) }
+func (r failTryRetry) Retry(ctx context.Context, provider Provider,
+	request Request, endpoint Endpoint, err error) (Endpoint, interface{}, error) {
+	num := r.maxnum
+	if num <= 0 {
+		num = 1
+	}
+
+	var resp interface{}
+	for i := 0; i < num && err != nil; i++ {
+		if r.interval > 0 {
+			ticker := time.NewTimer(r.interval)
+			select {
+			case <-ctx.Done():
+				ticker.Stop()
+				return endpoint, resp, err
+			case <-ticker.C:
+				ticker.Stop()
+			}
+		}
+
+		resp, err = endpoint.RoundTrip(ctx, request)
+	}
+
+	return endpoint, resp, err
+}
+
+// FailOver returns a failure retry, which will retry the other endpoints
+// until the maximum retry number or all endpoints are retried.
 //
 // If maxnum is equal to 0, it will retry until all endpoints are retried.
 //
 // Notice: the name is "failover(maxnum)".
-func FailOver(maxnum int, retryf func(maxnum int) retry.Retry) FailRetry {
-	if maxnum < 0 {
-		panic("FailOver: the retry maximum number must not be a negative integer")
+func FailOver(maxnum int, interval time.Duration) FailRetry {
+	return failOverRetry{
+		maxnum:   maxnum,
+		interval: interval,
+		random:   rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
-	name := fmt.Sprintf("failover(%d)", maxnum)
-	return failRetry{name: name, maxnum: maxnum, retryf: retryf}
 }
 
-type failRetry struct {
-	name   string
-	sameep bool
-
-	maxnum int
-	retryf func(int) retry.Retry
+type failOverRetry struct {
+	random   *rand.Rand
+	interval time.Duration
+	maxnum   int
 }
 
-func (f failRetry) String() string { return f.name }
-
-func (f failRetry) Retry(c context.Context, p Provider, r Request, ep Endpoint, e error) (interface{}, error) {
-	num := f.maxnum
-	if num == 0 {
-		if num = p.Len(); num == 0 {
-			return nil, e
+func (r failOverRetry) String() string { return fmt.Sprintf("failover(%d)", r.maxnum) }
+func (r failOverRetry) Retry(ctx context.Context, provider Provider,
+	request Request, endpoint Endpoint, err error) (Endpoint, interface{}, error) {
+	var resp interface{}
+	var failedEndpoints Endpoints
+	for i := 0; (r.maxnum <= 0 || i < r.maxnum) && err != nil; i++ {
+		if r.interval > 0 {
+			ticker := time.NewTimer(r.interval)
+			select {
+			case <-ctx.Done():
+				ticker.Stop()
+				return endpoint, resp, err
+			case <-ticker.C:
+				ticker.Stop()
+			}
 		}
+
+		if failedEndpoints == nil {
+			failedEndpoints = Endpoints{endpoint}
+		} else {
+			failedEndpoints = append(failedEndpoints, endpoint)
+		}
+
+		gone := true
+		provider.Inspect(func(eps Endpoints) {
+			if _len := len(eps); _len > 0 {
+				start := r.random.Intn(_len)
+				for end := start + _len; start < end; start++ {
+					if ep := eps[start%_len]; failedEndpoints.NotContains(ep) {
+						endpoint, gone = ep, false
+						return
+					}
+				}
+			}
+		})
+		if gone {
+			break
+		}
+
+		resp, err = endpoint.RoundTrip(ctx, request)
 	}
 
-	resp, err := f.retryf(num-1).Call(c, f.call, r, ep, p)
-	if err == retry.ErrEndRetry {
-		err = e
-	}
-
-	return resp, err
-}
-
-func (f failRetry) call(c context.Context, args ...interface{}) (interface{}, error) {
-	if f.sameep {
-		return args[1].(Endpoint).RoundTrip(c, args[0].(Request))
-	}
-
-	req := args[0].(Request)
-	if ep := args[2].(Provider).Select(req, false); ep != nil {
-		return ep.RoundTrip(c, req)
-	}
-
-	return nil, retry.ErrEndRetry
+	return endpoint, resp, err
 }

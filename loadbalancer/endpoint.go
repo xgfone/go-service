@@ -16,8 +16,6 @@ package loadbalancer
 
 import (
 	"context"
-	"fmt"
-	"io"
 	"sort"
 )
 
@@ -50,12 +48,8 @@ type EndpointState struct {
 
 // Endpoint represents a service endpoint.
 type Endpoint interface {
-	// Returns the description of the endpoint, which is the unique identity
-	// and may be the address or the url.
-	//
-	// Notice: For the virtual host, it should contain the host domain name,
-	// such as "domain@ip:port".
-	fmt.Stringer
+	// ID returns the unique id of the endpoint, which may be an address or url.
+	ID() string
 
 	// Type returns the type of the endpoint, such as "http", "tcp", etc.
 	Type() string
@@ -63,60 +57,47 @@ type Endpoint interface {
 	// State returns the state of the current endpoint.
 	State() EndpointState
 
-	// MetaData is the internal data of the endpoint, which had better contain
-	// a key "addr" to indicate the address of the endpoint.
+	// MetaData returns the metadata of the endpoint.
 	MetaData() map[string]interface{}
-
-	// IsHealthy is used to detect whether the endpoint is healthy,
-	// that's, the endpoint is connected or accessed.
-	IsHealthy(context.Context) bool
 
 	// RoundTrip sends the request to the current endpoint.
 	RoundTrip(c context.Context, req Request) (response interface{}, err error)
 }
 
-// EndpointManager is used to add and delete the endpoint.
-type EndpointManager interface {
+// EndpointUpdater is used to add or delete the endpoint.
+type EndpointUpdater interface {
 	AddEndpoint(Endpoint)
 	DelEndpoint(Endpoint)
 }
 
-// EndpointUpdater is used to update the endpoint.
-type EndpointUpdater interface {
-	EndpointManager
-	Name() string
-	io.Closer
+// EndpointBatchUpdater is used to add or delete the endpoints in bulk.
+type EndpointBatchUpdater interface {
+	AddEndpoints([]Endpoint)
+	DelEndpoints([]Endpoint)
 }
 
 // Endpoints is a set of Endpoint.
 type Endpoints []Endpoint
 
-func (es Endpoints) Sort()         { sort.Stable(es) }
-func (es Endpoints) Len() int      { return len(es) }
-func (es Endpoints) Swap(i, j int) { es[i], es[j] = es[j], es[i] }
-func (es Endpoints) Less(i, j int) bool {
-	if es[i] == nil {
-		return false
-	} else if es[j] == nil {
-		return true
-	}
-	return es[i].String() < es[j].String()
-}
+func (es Endpoints) Sort()              { sort.Stable(es) }
+func (es Endpoints) Len() int           { return len(es) }
+func (es Endpoints) Swap(i, j int)      { es[i], es[j] = es[j], es[i] }
+func (es Endpoints) Less(i, j int) bool { return es[i].ID() < es[j].ID() }
 
 // Contains reports whether the endpoints contains the endpoint.
 func (es Endpoints) Contains(endpoint Endpoint) bool {
-	return binarySearch(es, endpoint.String()) != -1
+	return binarySearch(es, endpoint.ID()) != -1
 }
 
 // NotContains reports whether the endpoints does not contain the endpoint.
 func (es Endpoints) NotContains(endpoint Endpoint) bool {
-	return binarySearch(es, endpoint.String()) == -1
+	return binarySearch(es, endpoint.ID()) == -1
 }
 
 func binarySearch(eps Endpoints, addr string) int {
 	for low, high := 0, len(eps)-1; low <= high; {
 		mid := (low + high)
-		eaddr := eps[mid].String()
+		eaddr := eps[mid].ID()
 		if eaddr == addr {
 			return mid
 		} else if addr < eaddr {
@@ -186,6 +167,3 @@ func UnwrapEndpoint(endpoint Endpoint) Endpoint {
 	}
 	return endpoint
 }
-
-// EndpointHealthChecker is used to check whether the endpoint addr is healthy.
-type EndpointHealthChecker func(ctx context.Context, addr string) error

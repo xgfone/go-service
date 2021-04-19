@@ -17,7 +17,6 @@ package loadbalancer
 import (
 	"context"
 	"errors"
-	"time"
 )
 
 var (
@@ -25,29 +24,35 @@ var (
 	err2 = errors.New("error2")
 )
 
-var sleep = time.Millisecond * 10
-
 type noopRequest string
 
 func newNoopRequest(addr string) Request       { return noopRequest(addr) }
 func (r noopRequest) RemoteAddrString() string { return string(r) }
 func (r noopRequest) SessionID() string        { return string(r) }
 
-type sleepEndpoint struct {
-	err   error
-	addr  string
-	state ConnectionState
+type noopEndpoint struct{ name string }
+
+func newNoopEndpoint(name string) Endpoint               { return &noopEndpoint{name: name} }
+func (e *noopEndpoint) ID() string                       { return e.name }
+func (e *noopEndpoint) Type() string                     { return "noop" }
+func (e *noopEndpoint) State() (s EndpointState)         { return }
+func (e *noopEndpoint) MetaData() map[string]interface{} { return nil }
+func (e *noopEndpoint) RoundTrip(context.Context, Request) (interface{}, error) {
+	return nil, nil
 }
 
-func newSleepEndpoint(addr string, e error) Endpoint      { return &sleepEndpoint{err: e, addr: addr} }
-func (e *sleepEndpoint) Type() string                     { return "noop" }
-func (e *sleepEndpoint) String() string                   { return e.addr }
-func (e *sleepEndpoint) State() EndpointState             { return e.state.ToEndpointState() }
-func (e *sleepEndpoint) MetaData() map[string]interface{} { return nil }
-func (e *sleepEndpoint) IsHealthy(context.Context) bool   { return true }
-func (e *sleepEndpoint) RoundTrip(c context.Context, r Request) (interface{}, error) {
-	e.state.Inc()
-	defer e.state.Dec()
-	time.Sleep(sleep)
+type errEndpoint struct {
+	name string
+	err  error
+}
+
+func newErrorEndpoint(name string, err error) Endpoint {
+	return &errEndpoint{name: name, err: err}
+}
+func (e *errEndpoint) ID() string                       { return e.name }
+func (e *errEndpoint) Type() string                     { return "error" }
+func (e *errEndpoint) State() (s EndpointState)         { return }
+func (e *errEndpoint) MetaData() map[string]interface{} { return nil }
+func (e *errEndpoint) RoundTrip(context.Context, Request) (interface{}, error) {
 	return nil, e.err
 }

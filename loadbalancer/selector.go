@@ -64,6 +64,15 @@ func GetSelectors() []Selector {
 	return ss
 }
 
+// SelectorGetSetter is used to get or set the selector.
+type SelectorGetSetter interface {
+	// GetSelector returns the selector.
+	GetSelector() Selector
+
+	// SetSelector sets the selector.
+	SetSelector(Selector)
+}
+
 // Selector is used to to select the active endpoint to be used.
 type Selector interface {
 	// String returns the name of the selector.
@@ -74,24 +83,12 @@ type Selector interface {
 	Select(request Request, endpoints []Endpoint) Endpoint
 }
 
-// SelectorManager is used to manage the selector.
-type SelectorManager interface {
-	// GetSelector returns the selector.
-	GetSelector() Selector
-
-	// SetSelector sets the selector to new and returns the old if new and old
-	// are not the same selector. Or do nothing and return nil.
-	SetSelector(new Selector) (old Selector)
-}
-
 type selector struct {
 	name     string
 	selector func(Request, Endpoints) Endpoint
 }
 
 func (s selector) String() string                            { return s.name }
-func (s selector) OnStart(Endpoint)                          {}
-func (s selector) OnEnd(Endpoint)                            {}
 func (s selector) Select(r Request, eps []Endpoint) Endpoint { return s.selector(r, eps) }
 
 // SelectorFunc returns a new Selector with the name and the selector.

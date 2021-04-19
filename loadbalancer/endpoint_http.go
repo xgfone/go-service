@@ -21,7 +21,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 )
 
@@ -55,130 +54,13 @@ func (r HTTPRequest) RemoteAddrString() string { return r.req.RemoteAddr }
 // Request returns the inner http.Request.
 func (r HTTPRequest) Request() *http.Request { return r.req }
 
-// HTTPEndpointHealthCheckerFunc is used to check the health of the endpoint.
-type HTTPEndpointHealthCheckerFunc func(c context.Context, addr string, info HTTPEndpointInfo) bool
-
-// HTTPEndpointHealthChecker is equal to
-//   HTTPEndpointHealthCheckerWithConfig(&HTTPEndpointHealthCheckerConfig{
-//       Client: client,
-//       Info: info,
-//   })
-func HTTPEndpointHealthChecker(client *http.Client, info HTTPEndpointInfo) (
-	HTTPEndpointHealthCheckerFunc, error) {
-	return HTTPEndpointHealthCheckerWithConfig(&HTTPEndpointHealthCheckerConfig{
-		Client: client, Info: info,
-	})
-}
-
-var defaultHTTPStatusCodeRanges = []HTTPStatusCodeRange{{End: 400}}
-
-// HTTPStatusCodeRange is the range of the http status code,
-// which is semi-closure, that's, [Begin, End).
-type HTTPStatusCodeRange struct {
-	Begin int `json:"begin" xml:"begin"`
-	End   int `json:"end" xml:"end"`
-}
-
-// HTTPEndpointHealthCheckerConfig is used to configure the health checker
-// of the http endpoint.
-type HTTPEndpointHealthCheckerConfig struct {
-	// Default: http.DefaultClient
-	Client *http.Client
-
-	// Default: [{Begin: 0, End: 400}]
-	Codes []HTTPStatusCodeRange
-
-	// Info is the information to check the health of the http endpoint.
-	//
-	// Default:
-	//   Scheme: "http"
-	//   Method: "GET"
-	//   Path:   "/"
-	Info HTTPEndpointInfo
-}
-
-// HTTPEndpointHealthCheckerWithConfig returns a health checker,
-// which builds and sends a url to check the status code is in the given range.
-func HTTPEndpointHealthCheckerWithConfig(c *HTTPEndpointHealthCheckerConfig) (
-	HTTPEndpointHealthCheckerFunc, error) {
-	var conf HTTPEndpointHealthCheckerConfig
-	if c != nil {
-		conf = *c
-	}
-
-	if err := conf.Info.Validate(); err != nil {
-		return nil, err
-	}
-
-	if conf.Info.Method == "" {
-		conf.Info.Method = http.MethodGet
-	}
-
-	if conf.Info.Scheme == "" {
-		conf.Info.Scheme = "http"
-	}
-
-	if conf.Info.Path == "" {
-		conf.Info.Path = "/"
-	}
-
-	if len(conf.Codes) == 0 {
-		conf.Codes = defaultHTTPStatusCodeRanges
-	}
-
-	return func(c context.Context, addr string, _ HTTPEndpointInfo) bool {
-		url := fmt.Sprintf("%s://%s%s", conf.Info.Scheme, addr, conf.Info.Path)
-		req, err := http.NewRequestWithContext(c, conf.Info.Method, url, nil)
-		if err != nil {
-			return false
-		}
-
-		if conf.Info.Hostname != "" {
-			req.Host = conf.Info.Hostname
-		}
-		if len(conf.Info.Query) != 0 {
-			req.URL.RawQuery = conf.Info.Query.Encode()
-		}
-		if len(conf.Info.Header) != 0 {
-			if len(req.Header) == 0 {
-				req.Header = conf.Info.Header
-			} else {
-				for k, vs := range conf.Info.Header {
-					req.Header[k] = vs
-				}
-			}
-		}
-
-		var resp *http.Response
-		if conf.Client == nil {
-			resp, err = http.DefaultClient.Do(req)
-		} else {
-			resp, err = conf.Client.Do(req)
-		}
-
-		if err != nil {
-			return false
-		}
-		resp.Body.Close()
-
-		for _, code := range conf.Codes {
-			if code.Begin <= resp.StatusCode && resp.StatusCode < code.End {
-				return true
-			}
-		}
-
-		return false
-	}, nil
-}
-
 type HTTPEndpointInfo struct {
-	// If Scheme is set, it should be one of "http" or "https".
-	Scheme   string      `json:"scheme,omitempty" xml:"scheme,omitempty"`
-	Method   string      `json:"method,omitempty" xml:"method,omitempty"`
-	Hostname string      `json:"hostname,omitempty" xml:"hostname,omitempty"`
-	Path     string      `json:"path,omitempty" xml:"path,omitempty"`
-	Query    url.Values  `json:"query,omitempty" xml:"query,omitempty"`
-	Header   http.Header `json:"header,omitempty" xml:"header,omitempty"`
+	Scheme string      `json:"scheme,omitempty" xml:"scheme,omitempty"`
+	Method string      `json:"method,omitempty" xml:"method,omitempty"`
+	Host   string      `json:"host,omitempty" xml:"host,omitempty"`
+	Path   string      `json:"path,omitempty" xml:"path,omitempty"`
+	Query  url.Values  `json:"query,omitempty" xml:"query,omitempty"`
+	Header http.Header `json:"header,omitempty" xml:"header,omitempty"`
 }
 
 // Validate reports whether the fields are valid if they are not empty.
@@ -203,11 +85,10 @@ func (i HTTPEndpointInfo) Validate() error {
 
 // HTTPEndpointConfig is used to configure the HTTP endpoint.
 type HTTPEndpointConfig struct {
-	// ID is the id of the endpoint, which will be set as the response header
-	// "X-Server-Id".
+	// ServerID is set the response header "X-Server-Id".
 	//
 	// Default: hex.EncodeToString([]byte(addr)).
-	ID string
+	ServerID string
 
 	// Info is the additional optional information of the endpoint
 	// to forward the request.
@@ -226,111 +107,73 @@ type HTTPEndpointConfig struct {
 	// Default: false
 	XForwardedFor bool
 
-	// Checker is used to check whether the endpoint is healthy.
-	//
-	// Default:
-	//   HTTPEndpointHealthChecker(HTTPEndpointInfo{
-	//       Scheme: HTTPEndpointConfig.Info.Scheme,
-	//       Hostname: HTTPEndpointConfig.Info.Hostname,
-	//   })
-	//
-	Checker HTTPEndpointHealthCheckerFunc
-
 	// Handler is used to allow the user to customize the http request.
 	//
 	// Default: client.Do(httpReq)
 	Handler func(origReq Request, client *http.Client, httpReq *http.Request) (*http.Response, error)
 }
 
-func (c *HTTPEndpointConfig) init() (err error) {
+func (c *HTTPEndpointConfig) init(addr string) (hostport string, err error) {
 	if err = c.Info.Validate(); err != nil {
-		return err
+		return "", err
 	}
-
 	if c.Info.Scheme == "" {
 		c.Info.Scheme = "http"
 	}
-
 	if c.Client == nil {
 		client := *http.DefaultClient
 		client.Transport = http.DefaultTransport
 		c.Client = &client
 	}
 
-	if c.Checker == nil {
-		info := HTTPEndpointInfo{Scheme: c.Info.Scheme, Hostname: c.Info.Hostname}
-		c.Checker, err = HTTPEndpointHealthChecker(c.Client, info)
+	hostport = addr
+	if host, port := splitHostPort(hostport); host == "" {
+		return "", fmt.Errorf("invalid http endpoint address '%s'", addr)
+	} else if port == "" {
+		if c.Info.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+		hostport = net.JoinHostPort(host, port)
+	}
+
+	if c.ServerID == "" {
+		c.ServerID = hex.EncodeToString([]byte(hostport))
 	}
 
 	return
 }
 
-// NewHTTPEndpoint returns a new HTTP endpoint.
+// NewHTTPEndpoint returns a new HTTP endpoint with the type "http".
 //
-// HTTPEndpointInfo Default:
-//   Scheme: "http"
-//   Checker: HTTPEndpointHealthChecker(conf.Client, HTTPEndpointInfo{
-//                Scheme: conf.Info.Scheme,
-//                Hostname: conf.Info.Hostname,
-//            })
-//
+// addr is the format HOST[:PORT] and is the id of the endpoint.
 func NewHTTPEndpoint(addr string, conf *HTTPEndpointConfig) (Endpoint, error) {
 	var c HTTPEndpointConfig
 	if conf != nil {
 		c = *conf
 	}
 
-	if err := c.init(); err != nil {
+	epid := addr
+	addr, err := c.init(addr)
+	if err != nil {
 		return nil, err
 	}
-
-	_, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		if !strings.HasPrefix(err.Error(), "missing port") {
-			return nil, err
-		}
-
-		if c.Info.Scheme == "http" {
-			port = "80"
-		} else {
-			port = "443"
-		}
-		addr = net.JoinHostPort(addr, port)
-	}
-
-	desc := addr
-	if c.Info.Hostname != "" {
-		desc = strings.Join([]string{c.Info.Hostname, addr}, "@")
-	}
-
-	if c.ID == "" {
-		c.ID = hex.EncodeToString([]byte(addr))
-	}
-
-	return &httpEndpoint{conf: c, desc: desc, addr: addr, port: port}, nil
+	return &httpEndpoint{conf: c, addr: addr, epid: epid}, nil
 }
 
 type httpEndpoint struct {
 	state ConnectionState
 	conf  HTTPEndpointConfig
-	desc  string
 	addr  string
-	port  string
-	svrid string
+	epid  string
 }
 
+func (e *httpEndpoint) ID() string           { return e.epid }
 func (e *httpEndpoint) Type() string         { return "http" }
-func (e *httpEndpoint) String() string       { return e.desc }
 func (e *httpEndpoint) State() EndpointState { return e.state.ToEndpointState() }
-func (e *httpEndpoint) IsHealthy(c context.Context) bool {
-	return e.conf.Checker(c, e.addr, e.conf.Info)
-}
 func (e *httpEndpoint) MetaData() map[string]interface{} {
-	return map[string]interface{}{
-		"id":   e.conf.ID,
-		"info": e.conf.Info,
-		"addr": e.addr,
-	}
+	return map[string]interface{}{"http": e.conf.Info, "addr": e.addr}
 }
 
 func (e *httpEndpoint) RoundTrip(c context.Context, r Request) (interface{}, error) {
@@ -348,15 +191,15 @@ func (e *httpEndpoint) RoundTrip(c context.Context, r Request) (interface{}, err
 		}
 	}
 
+	req.URL.Scheme = e.conf.Info.Scheme
 	if e.conf.Info.Method != "" {
 		req.Method = e.conf.Info.Method
 	}
-	if req.URL.Scheme == "" {
-		req.URL.Scheme = e.conf.Info.Scheme
-	}
+
 	if e.conf.Info.Path != "" {
 		req.URL.Path = e.conf.Info.Path
 	}
+
 	if len(e.conf.Info.Query) != 0 {
 		if req.URL.RawQuery == "" {
 			req.URL.RawQuery = e.conf.Info.Query.Encode()
@@ -369,6 +212,7 @@ func (e *httpEndpoint) RoundTrip(c context.Context, r Request) (interface{}, err
 			req.URL.RawQuery = values.Encode()
 		}
 	}
+
 	if len(e.conf.Info.Header) != 0 {
 		if len(req.Header) == 0 {
 			req.Header = e.conf.Info.Header
@@ -379,8 +223,8 @@ func (e *httpEndpoint) RoundTrip(c context.Context, r Request) (interface{}, err
 		}
 	}
 
-	if e.conf.Info.Hostname != "" {
-		req.Host = e.conf.Info.Hostname // Set the header "Host"
+	if e.conf.Info.Host != "" {
+		req.Host = e.conf.Info.Host // Set the header "Host"
 	}
 	req.URL.Host = e.addr // Dial to the endpoint
 	req.RequestURI = ""   // Pretend to be a client request.
@@ -394,7 +238,7 @@ func (e *httpEndpoint) RoundTrip(c context.Context, r Request) (interface{}, err
 	}
 
 	if resp != nil {
-		resp.Header.Set("X-Server-Id", e.svrid)
+		resp.Header.Set("X-Server-Id", e.conf.ServerID)
 	}
 	return resp, err
 }

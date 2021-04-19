@@ -18,8 +18,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Predefine some errors.
@@ -33,27 +33,46 @@ var _ LoadBalancerRoundTripper = &LoadBalancer{}
 // LoadBalancer is a group of endpoints that can handle the same request,
 // which will forward the request to any endpoint to handle it.
 type LoadBalancer struct {
+	// Default: NewGeneralProvider(nil)
 	Provider
 
-	fr     FailRetry
-	frLock sync.RWMutex
-	hasfr  uint32
-	name   string
+	// Default: NewNoopSession()
+	Session Session
+
+	// Default: FailOver(0, time.Millisecond*10)
+	FailRetry FailRetry
+
+	name    string
+	timeout int64 // Session Timeout
 }
 
 // NewLoadBalancer returns a new LoadBalancer.
-//
-// provider is equal to NewProvider("", nil) by default.
 func NewLoadBalancer(name string, provider Provider) *LoadBalancer {
 	if provider == nil {
 		provider = NewGeneralProvider(nil)
 	}
 
-	return &LoadBalancer{Provider: provider, name: name}
+	return &LoadBalancer{
+		Provider:  provider,
+		FailRetry: FailOver(0, time.Millisecond*10),
+		Session:   NewNoopSession(),
+		timeout:   int64(time.Second * 30),
+		name:      name,
+	}
 }
 
 // Name returns the name of the loadbalancer.
 func (lb *LoadBalancer) Name() string { return lb.name }
+
+// GetSessionTimeout gets the session timeout.
+func (lb *LoadBalancer) GetSessionTimeout() time.Duration {
+	return time.Duration(atomic.LoadInt64(&lb.timeout))
+}
+
+// SetSessionTimeout sets the session timeout.
+func (lb *LoadBalancer) SetSessionTimeout(timeout time.Duration) {
+	atomic.StoreInt64(&lb.timeout, int64(timeout))
+}
 
 // String implements the interface fmt.Stringer.
 func (lb *LoadBalancer) String() string {
@@ -63,51 +82,66 @@ func (lb *LoadBalancer) String() string {
 	return fmt.Sprintf("LoadBalancer(provider=%s)", lb.Provider.String())
 }
 
-// AddEndpoint implements the interface EndpointManager.
+// AddEndpoint implements the interface EndpointUpdater.
 func (lb *LoadBalancer) AddEndpoint(ep Endpoint) {
-	lb.Provider.(EndpointManager).AddEndpoint(ep)
+	lb.Provider.(EndpointUpdater).AddEndpoint(ep)
 }
 
-// DelEndpoint implements the interface EndpointManager.
+// DelEndpoint implements the interface EndpointUpdater.
 func (lb *LoadBalancer) DelEndpoint(ep Endpoint) {
-	lb.Provider.(EndpointManager).DelEndpoint(ep)
+	lb.Provider.(EndpointUpdater).DelEndpoint(ep)
 }
 
-func (lb *LoadBalancer) GetFailRetry() (failretry FailRetry) {
-	if atomic.LoadUint32(&lb.hasfr) == 1 {
-		lb.frLock.RLock()
-		failretry = lb.fr
-		lb.frLock.RUnlock()
+// AddEndpoints implements the interface EndpointBatchUpdater.
+func (lb *LoadBalancer) AddEndpoints(eps []Endpoint) {
+	lb.Provider.(EndpointBatchUpdater).AddEndpoints(eps)
+}
+
+// DelEndpoints implements the interface EndpointBatchUpdater.
+func (lb *LoadBalancer) DelEndpoints(eps []Endpoint) {
+	lb.Provider.(EndpointBatchUpdater).DelEndpoints(eps)
+}
+
+func (lb *LoadBalancer) getEndpointFromSession(r Request) (sid string, ep Endpoint) {
+	if sid = r.SessionID(); sid == "" {
+		if sid = r.RemoteAddrString(); sid == "" {
+			return
+		}
+	}
+
+	if ep = lb.Session.GetEndpoint(sid); ep != nil {
+		if !lb.Provider.IsActive(ep) {
+			lb.Session.DelEndpoint(sid)
+			ep = nil
+		}
 	}
 	return
-}
-
-// SetFailRetry sets the fail retry.
-//
-// If failretry is equal to nil, unset it to disable the fail retry.
-func (lb *LoadBalancer) SetFailRetry(failretry FailRetry) {
-	lb.frLock.Lock()
-	lb.fr = failretry
-	if failretry == nil {
-		atomic.StoreUint32(&lb.hasfr, 0)
-	} else {
-		atomic.StoreUint32(&lb.hasfr, 1)
-	}
-	lb.frLock.Unlock()
 }
 
 // RoundTrip selects an endpoint, then call it. If failed, it will retry it
 // by the fail handler if it's set.
 func (lb *LoadBalancer) RoundTrip(c context.Context, r Request) (resp interface{}, err error) {
-	ep := lb.Provider.Select(r, true)
+	var notsession bool
+	sid, ep := lb.getEndpointFromSession(r)
 	if ep == nil {
-		return nil, ErrNoAvailableEndpoint
+		if ep = lb.Provider.Select(r); ep == nil {
+			return nil, ErrNoAvailableEndpoint
+		}
+
+		notsession = true
 	}
 
-	if resp, err = ep.RoundTrip(c, r); err == nil {
-		return resp, nil
-	} else if failRetry := lb.GetFailRetry(); failRetry != nil {
-		resp, err = failRetry.Retry(c, lb.Provider, r, ep, err)
+	if resp, err = ep.RoundTrip(c, r); err != nil {
+		ep, resp, err = lb.FailRetry.Retry(c, lb.Provider, r, ep, err)
+		if sid != "" {
+			if err == nil {
+				lb.Session.SetEndpoint(sid, ep, lb.GetSessionTimeout())
+			} else if !notsession {
+				lb.Session.DelEndpoint(sid)
+			}
+		}
+	} else if notsession && sid != "" {
+		lb.Session.SetEndpoint(sid, ep, lb.GetSessionTimeout())
 	}
 
 	return

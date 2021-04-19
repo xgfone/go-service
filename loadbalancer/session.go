@@ -15,21 +15,10 @@
 package loadbalancer
 
 import (
-	"fmt"
 	"io"
 	"sync"
 	"time"
 )
-
-// SessionManager is used to get or set the session.
-type SessionManager interface {
-	// GetSession returns the session.
-	GetSession() Session
-
-	// SetSession sets the session to new and returns the old if new and old
-	// are not the same session. Or do nothing and return nil.
-	SetSession(new Session) (old Session)
-}
 
 // Session is a session to manage the connection session.
 //
@@ -38,11 +27,9 @@ type Session interface {
 	// Release all the cache resources.
 	io.Closer
 
-	// Returns the description of the session, which is the unique identity.
-	fmt.Stringer
-
-	// Type returns the type of the session, such as "memory", "redis", etc.
-	Type() string
+	// URL returns the url representation of the session, which represents
+	// the unique session, such as "memory://", "redis://pass@ip:port/num", etc.
+	URL() string
 
 	// GetEndpoint returns the Endpoint by the session id.
 	//
@@ -59,7 +46,7 @@ type Session interface {
 	DelEndpoint(sid string)
 }
 
-// NewNoopSession returns a new no-op Session.
+// NewNoopSession returns a new no-op Session with the url "noop://".
 func NewNoopSession() Session {
 	return noopSession{}
 }
@@ -67,13 +54,13 @@ func NewNoopSession() Session {
 type noopSession struct{}
 
 func (m noopSession) Close() error                                { return nil }
-func (m noopSession) Type() string                                { return "noop" }
-func (m noopSession) String() string                              { return "noop" }
+func (m noopSession) URL() string                                 { return "noop://" }
 func (m noopSession) GetEndpoint(string) Endpoint                 { return nil }
 func (m noopSession) SetEndpoint(string, Endpoint, time.Duration) {}
 func (m noopSession) DelEndpoint(string)                          {}
 
-// NewMemorySession returns the simple Session based on memory.
+// NewMemorySession returns the simple Session based on memory with the url
+// "memory://"
 //
 // tick is the clock tick to clean the expired session cache.
 func NewMemorySession(tick time.Duration) Session {
@@ -127,9 +114,8 @@ func (m *memorySession) clean(interval time.Duration) {
 	}
 }
 
-func (m *memorySession) Type() string   { return "memory" }
-func (m *memorySession) String() string { return "memory" }
-func (m *memorySession) Close() error   { close(m.exit); return nil }
+func (m *memorySession) URL() string  { return "memory://" }
+func (m *memorySession) Close() error { close(m.exit); return nil }
 
 func (m *memorySession) GetEndpoint(sid string) (ep Endpoint) {
 	m.lock.RLock()
@@ -155,3 +141,57 @@ func (m *memorySession) DelEndpoint(sid string) {
 	delete(m.maps, sid)
 	m.lock.Unlock()
 }
+
+// SessionProxy is a session proxy, which can swap the session to a different
+// thread-safely.
+type SessionProxy struct {
+	lock    sync.RWMutex
+	session Session
+}
+
+// NewSessionProxy returns a new session proxy with the session.
+func NewSessionProxy(session Session) *SessionProxy {
+	if session == nil {
+		panic("SessionProxy: session is nil")
+	}
+	return &SessionProxy{session: session}
+}
+
+// SwapSession swaps the inner session with the new if they are equal.
+// Or do nothing.
+func (sp *SessionProxy) SwapSession(new Session) (old Session, ok bool) {
+	url := new.URL()
+	sp.lock.Lock()
+	if sp.session.URL() != url {
+		old, sp.session, ok = sp.session, new, true
+	}
+	sp.lock.Unlock()
+	return
+}
+
+// GetSession returns the inner session.
+func (sp *SessionProxy) GetSession() (session Session) {
+	sp.lock.RLock()
+	session = sp.session
+	sp.lock.RUnlock()
+	return
+}
+
+// Close implements the interface Session.
+func (sp *SessionProxy) Close() error { return sp.GetSession().Close() }
+
+// URL implements the interface Session.
+func (sp *SessionProxy) URL() string { return sp.GetSession().URL() }
+
+// GetEndpoint implements the interface Session.
+func (sp *SessionProxy) GetEndpoint(sid string) Endpoint {
+	return sp.GetSession().GetEndpoint(sid)
+}
+
+// SetEndpoint implements the interface Session.
+func (sp *SessionProxy) SetEndpoint(sid string, ep Endpoint, timeout time.Duration) {
+	sp.GetSession().SetEndpoint(sid, ep, timeout)
+}
+
+// DelEndpoint implements the interface Session.
+func (sp *SessionProxy) DelEndpoint(sid string) { sp.GetSession().DelEndpoint(sid) }
