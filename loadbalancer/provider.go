@@ -34,7 +34,7 @@ type Provider interface {
 	// IsActive reports whether the endpoint is still active.
 	IsActive(Endpoint) bool
 
-	// Invoke calls the function with the endpoints in ascending sort order.
+	// Inspect calls the function with the endpoints in ascending sort order.
 	Inspect(func(Endpoints))
 
 	// Select selects an endpoint by the Request.
