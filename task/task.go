@@ -41,11 +41,16 @@ func init() {
 // StartChecker starts the checker to activate or deactivate the default services
 // by the check condition.
 func StartChecker() {
+	var activated bool
 	go runforever(ctx, 0, checkintvl.Load().(time.Duration), func() {
-		if cond := checkcond.Load().(func(context.Context) bool); cond(ctx) {
-			service.DefaultServices.Activate()
-		} else {
-			service.DefaultServices.Deactivate()
+		ok := checkcond.Load().(func(context.Context) bool)(ctx)
+		if ok != activated {
+			if ok {
+				service.DefaultServices.Activate()
+			} else {
+				service.DefaultServices.Deactivate()
+			}
+			activated = ok
 		}
 	})
 }
