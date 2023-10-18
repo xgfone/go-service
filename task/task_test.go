@@ -27,7 +27,7 @@ func TestTask(t *testing.T) {
 
 	SetCheckInterval(time.Second)
 	SetCheckCond(func(ctx context.Context) bool { return false })
-	go StartChecker()
+	StartChecker()
 	go RunAlways(time.Millisecond*100, time.Second, func(ctx context.Context) { atomic.StoreInt32(task1, 1) })
 	go Run(time.Millisecond*100, time.Second, func(ctx context.Context) { atomic.StoreInt32(task2, 1); panic("test") })
 
@@ -40,7 +40,7 @@ func TestTask(t *testing.T) {
 	}
 
 	SetVipCheckCond("127.0.0.1")
-	time.Sleep(time.Second + time.Millisecond*100)
+	time.Sleep(time.Second * 2)
 	if atomic.LoadInt32(task1) != 1 {
 		t.Errorf("expect true, but got false")
 	}

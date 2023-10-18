@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package task provides some convenient service functions.
+// Package task provides some task service functions.
 package task
 
 import (
@@ -41,7 +41,7 @@ func init() {
 // StartChecker starts the checker to activate or deactivate the default services
 // by the check condition.
 func StartChecker() {
-	runforever(ctx, 0, checkintvl.Load().(time.Duration), func() {
+	go runforever(ctx, 0, checkintvl.Load().(time.Duration), func() {
 		if cond := checkcond.Load().(func(context.Context) bool); cond(ctx) {
 			service.DefaultServices.Activate()
 		} else {
