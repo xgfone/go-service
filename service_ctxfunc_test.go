@@ -16,16 +16,22 @@ package service
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
 
 func TestContextFunc(t *testing.T) {
 	var end time.Time
+	var lock sync.Mutex
+
 	start := time.Now()
 	svc := ContextFunc(func(ctx context.Context) {
 		<-ctx.Done()
+
+		lock.Lock()
 		end = time.Now()
+		lock.Unlock()
 	})
 
 	svc.Activate()
@@ -33,7 +39,11 @@ func TestContextFunc(t *testing.T) {
 	svc.Deactivate()
 	time.Sleep(time.Millisecond * 100)
 
-	if cost := end.Sub(start); cost < time.Second || cost > time.Second+time.Millisecond*100 {
+	lock.Lock()
+	_end := end
+	lock.Unlock()
+
+	if cost := _end.Sub(start); cost < time.Second || cost > time.Second+time.Millisecond*100 {
 		t.Error(cost.String())
 	}
 }
